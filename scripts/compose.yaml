@@ -1,0 +1,108 @@
+---
+services:
+
+  mysql:
+    image: mysql
+    hostname: mysql
+    container_name: mysql
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: true
+    ports:
+      - "3306:3306"
+
+  mysql-init:
+    image: mysql
+    depends_on:
+      - mysql
+    volumes: [./mysql/init.sql:/init.sql]
+    command: "bash -c '
+    echo INIT MYSQL;
+    '"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:22.5.3-alpine
+    hostname: clickhouse
+    container_name: clickhouse
+    ports:
+      - "8123:8123" # HTTP
+      - "9000:9000" # Native Protocol Port
+      - "8443:8443" # HTTP SSL/TLS
+
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:22.5.3-alpine
+    depends_on:
+      - clickhouse
+    volumes: [./clickhouse/init.sql:/init.sql]
+    command: "bash -c '
+    RETRY_COUNT=$$0;
+
+    while true;
+    do
+      RESULT=$$(echo SELECT 1 | clickhouse-client --host=clickhouse --port=9000);
+      if [ \"$$RESULT\" != 1 ]; then
+          RETRY_COUNT=$$((RETRY_COUNT + 1));
+          if [ \"$$RETRY_COUNT\" == 10 ]; then
+            echo Failed to connect to ClickHouse server after 10 attempts...;
+            exit 1;
+          fi;
+          echo Retry $$RETRY_COUNT...;
+          sleep 1;
+      else
+        cat /init.sql | clickhouse-client --host=clickhouse --port=9000 --multiquery;
+        echo ClickHouse is ready!;
+        exit 0;
+      fi;
+    done
+    '"
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.1
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-server:7.2.1
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092" # Broker
+      - "9997:9997" # JMX
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 9997
+      KAFKA_JMX_HOSTNAME: kafka
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.2.1
+    depends_on:
+      - kafka
+    command: "bash -c 'echo Waiting for Kafka to be ready... && \
+               cub kafka-ready -b kafka:29092 1 30 && \
+               kafka-topics --create --topic notify_create_task --partitions 3 --replication-factor 1 --if-not-exists --bootstrap-server kafka:29092'"
+
+  kafka-ui:
+    container_name: kafka-ui
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: cdp-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
