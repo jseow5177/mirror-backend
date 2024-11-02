@@ -71,7 +71,7 @@ type tagRepo struct {
 }
 
 func NewTagRepo(_ context.Context, mysqlCfg config.MySQL) (TagRepo, error) {
-	orm, err := gorm.Open(mysql.Open(mysqlCfg.ToDSN()))
+	orm, err := gorm.Open(mysql.Open(mysqlCfg.ToDSN()), &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}

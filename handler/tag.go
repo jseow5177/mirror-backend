@@ -8,9 +8,7 @@ import (
 	"cdp/repo"
 	"context"
 	"errors"
-	"fmt"
 	"github.com/rs/zerolog/log"
-	"strconv"
 	"time"
 )
 
@@ -36,9 +34,7 @@ type CreateTagRequest struct {
 	ExtInfo   *CreateTagExtInfo `json:"ext_info,omitempty"`
 }
 
-type CreateTagExtInfo struct {
-	DecimalPlace *uint32 `json:"decimal_place,omitempty"`
-}
+type CreateTagExtInfo struct{}
 
 func (req *CreateTagRequest) GetEnum() []string {
 	if req != nil && req.Enum != nil {
@@ -60,14 +56,12 @@ func (req *CreateTagRequest) ToTag() *entity.Tag {
 	}
 	now := time.Now()
 	return &entity.Tag{
-		Name:      req.Name,
-		Desc:      req.Desc,
-		Enum:      req.Enum,
-		ValueType: req.ValueType,
-		Status:    goutil.Uint32(uint32(entity.TagStatusNormal)),
-		ExtInfo: &entity.TagExtInfo{
-			DecimalPlace: req.ExtInfo.DecimalPlace,
-		},
+		Name:       req.Name,
+		Desc:       req.Desc,
+		Enum:       req.Enum,
+		ValueType:  req.ValueType,
+		Status:     goutil.Uint32(uint32(entity.TagStatusNormal)),
+		ExtInfo:    &entity.TagExtInfo{},
 		CreateTime: goutil.Uint64(uint64(now.Unix())),
 		UpdateTime: goutil.Uint64(uint64(now.Unix())),
 	}
@@ -100,11 +94,10 @@ func (h *tagHandler) CreateTag(ctx context.Context, req *CreateTagRequest, res *
 	}
 
 	tag := req.ToTag()
-	c := NewTagCreator(tag.GetValueType())
-
-	tag, err = c.PreCreate(ctx, tag)
-	if err != nil {
-		return errutil.ValidationError(err)
+	for _, v := range tag.Enum {
+		if ok := tag.IsValidTagValue(v); !ok {
+			return errutil.ValidationError(errors.New("invalid tag value enum"))
+		}
 	}
 
 	f := &repo.TagFilter{
@@ -129,69 +122,4 @@ func (h *tagHandler) CreateTag(ctx context.Context, req *CreateTagRequest, res *
 	}
 
 	return errors.New("tag already exists")
-}
-
-type TagCreator interface {
-	PreCreate(ctx context.Context, tag *entity.Tag) (*entity.Tag, error)
-}
-
-func NewTagCreator(tagValueType uint32) TagCreator {
-	switch tagValueType {
-	case uint32(entity.TagValueTypeInt):
-		return new(intTagCreator)
-	case uint32(entity.TagValueTypeStr):
-		return new(strTagCreator)
-	case uint32(entity.TagValueTypeFloat):
-		return new(floatTagCreator)
-	}
-	panic(fmt.Sprintf("tag creator not implemented for tag value type %v", tagValueType))
-}
-
-type strTagCreator struct{}
-
-func (c *strTagCreator) PreCreate(_ context.Context, tag *entity.Tag) (*entity.Tag, error) {
-	if tag.ExtInfo != nil && tag.ExtInfo.DecimalPlace != nil {
-		return nil, entity.ErrDecimalPlaceNotAllowed
-	}
-
-	return tag, nil
-}
-
-type intTagCreator struct{}
-
-func (c *intTagCreator) PreCreate(_ context.Context, tag *entity.Tag) (*entity.Tag, error) {
-	for _, v := range tag.Enum {
-		if _, err := strconv.Atoi(v); err != nil {
-			return nil, fmt.Errorf("expect enum to be int, got %v", v)
-		}
-	}
-
-	if tag.ExtInfo != nil && tag.ExtInfo.DecimalPlace != nil {
-		return nil, entity.ErrDecimalPlaceNotAllowed
-	}
-
-	return tag, nil
-}
-
-type floatTagCreator struct{}
-
-func (c *floatTagCreator) PreCreate(_ context.Context, tag *entity.Tag) (*entity.Tag, error) {
-	if tag.ExtInfo == nil || tag.ExtInfo.GetDecimalPlace() == 0 {
-		return nil, errors.New("expect decimal place to be non-empty")
-	}
-
-	if tag.ExtInfo.GetDecimalPlace() > entity.MaxDecimalPlace {
-		return nil, errors.New("exceed max decimal place")
-	}
-
-	// format enum to the right decimal place
-	for i, e := range tag.Enum {
-		s, err := goutil.FormatFloat(e, tag.ExtInfo.GetDecimalPlace())
-		if err != nil {
-			return nil, fmt.Errorf("expect enum to be float, got %v", e)
-		}
-		tag.Enum[i] = s
-	}
-
-	return tag, nil
 }

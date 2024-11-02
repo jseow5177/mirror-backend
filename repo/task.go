@@ -19,12 +19,10 @@ var mFields = []string{"status"}
 type Task struct {
 	ID         *uint64
 	TagID      *uint64
-	TagValue   *string
 	FileName   *string
 	FileKey    *string
 	URL        *string
 	Status     *uint32
-	Action     *uint32
 	CreateTime *uint64
 	UpdateTime *uint64
 }
@@ -110,12 +108,10 @@ func ToTaskModel(task *entity.Task) *Task {
 	return &Task{
 		ID:         task.ID,
 		TagID:      task.TagID,
-		TagValue:   task.TagValue,
 		FileName:   task.FileName,
 		FileKey:    task.FileKey,
 		URL:        task.URL,
 		Status:     task.Status,
-		Action:     task.Action,
 		CreateTime: task.CreateTime,
 		UpdateTime: task.UpdateTime,
 	}
@@ -125,12 +121,10 @@ func ToTask(task *Task) *entity.Task {
 	return &entity.Task{
 		ID:         task.ID,
 		TagID:      task.TagID,
-		TagValue:   task.TagValue,
 		FileName:   task.FileName,
 		FileKey:    task.FileKey,
 		URL:        task.URL,
 		Status:     task.Status,
-		Action:     task.Action,
 		CreateTime: task.CreateTime,
 		UpdateTime: task.UpdateTime,
 	}

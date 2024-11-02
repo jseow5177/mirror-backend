@@ -7,12 +7,14 @@ import (
 	"errors"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"reflect"
+	"strings"
 )
 
-type FileInfo struct {
+type FileMeta struct {
 	File       multipart.File
 	FileHeader *multipart.FileHeader
 }
@@ -22,15 +24,9 @@ var decoder = schema.NewDecoder()
 
 var (
 	ErrUnsupportedContentType = errors.New("unsupported content type")
+	ErrUnsupportedHttpMethod  = errors.New("unsupported http method")
 	ErrCannotSetFileInfo      = errors.New("cannot set file info")
 	ErrCannotDecodeUrlParams  = errors.New("cannot decode url params")
-)
-
-type ContentType uint32
-
-const (
-	ContentTypeJSON ContentType = iota
-	ContentTypeFile
 )
 
 type Middleware interface {
@@ -38,10 +34,9 @@ type Middleware interface {
 }
 
 type Handler struct {
-	Req         interface{}
-	Res         interface{}
-	HandleFunc  func(ctx context.Context, req interface{}, res interface{}) error
-	ContentType ContentType
+	Req        interface{}
+	Res        interface{}
+	HandleFunc func(ctx context.Context, req interface{}, res interface{}) error
 
 	reqT  reflect.Type
 	respT reflect.Type
@@ -80,52 +75,76 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req := reflect.New(h.reqT).Interface()
 	res := reflect.New(h.respT).Interface()
 
-	// decode url query
 	if err := decoder.Decode(req, r.URL.Query()); err != nil {
 		httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(ErrCannotDecodeUrlParams))
 		return
 	}
 
-	switch h.ContentType {
-	case ContentTypeJSON:
+	if hasContentType(r, "application/json") {
 		if err := httputil.ReadJsonBody(r, req); err != nil {
 			httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(err))
 			return
 		}
-	case ContentTypeFile:
-		f, fh, err := r.FormFile("file")
-		if err != nil && !errors.Is(err, http.ErrMissingFile) {
+	} else if hasContentType(r, "multipart/form-data") {
+		fileMeta, err := getFileMeta(r)
+		if err != nil {
 			httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(err))
 			return
 		}
-		defer func(f multipart.File) {
-			if f != nil {
-				_ = f.Close()
-			}
-		}(f)
 
-		var (
-			fileMeta = &FileInfo{
-				File:       f,
-				FileHeader: fh,
-			}
-			reqVal  = reflect.ValueOf(req).Elem()
-			reqType = reqVal.Type()
-		)
-		if fileMetaField, ok := reqType.FieldByName("FileInfo"); ok {
+		// set to FileMeta field in request struct
+		reqVal := reflect.ValueOf(req).Elem()
+		if fileMetaField, ok := reqVal.Type().FieldByName("FileMeta"); ok {
 			fv := reqVal.FieldByName(fileMetaField.Name)
 			if fv.CanSet() {
-				fv.Set(reflect.ValueOf(fileMeta)) // set to FileInfo field
+				fv.Set(reflect.ValueOf(fileMeta))
 			} else {
 				httputil.ReturnServerResponse(w, nil, ErrCannotSetFileInfo)
 				return
 			}
 		}
-	default:
+	} else {
 		httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(ErrUnsupportedContentType))
 		return
 	}
 
 	err := h.HandleFunc(r.Context(), req, res)
 	httputil.ReturnServerResponse(w, res, err)
+
+	return
+}
+
+func getFileMeta(r *http.Request) (*FileMeta, error) {
+	f, fh, err := r.FormFile("file")
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	fileMeta := &FileMeta{
+		File:       f,
+		FileHeader: fh,
+	}
+
+	return fileMeta, nil
+}
+
+func hasContentType(r *http.Request, mimetype string) bool {
+	contentType := r.Header.Get("Content-type")
+	if contentType == "" {
+		return mimetype == "application/octet-stream"
+	}
+
+	for _, v := range strings.Split(contentType, ",") {
+		t, _, err := mime.ParseMediaType(v)
+		if err != nil {
+			break
+		}
+		if t == mimetype {
+			return true
+		}
+	}
+	return false
 }

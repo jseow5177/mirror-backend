@@ -6,195 +6,125 @@ import (
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
-	"cdp/pkg/mq"
 	"cdp/pkg/router"
 	"cdp/pkg/validator"
 	"cdp/repo"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/errgroup"
+	"net/mail"
+	"strings"
+	"sync"
 	"time"
 )
 
+var queue = make(chan *entity.Task, 20)
+
+var startTaskOnce sync.Once
+
 type TaskHandler interface {
 	CreateFileUploadTask(ctx context.Context, req *CreateFileUploadTaskRequest, res *CreateFileUploadTaskResponse) error
-	WriteFileToStorage(ctx context.Context, req *mq.NotifyCreateTask) error
 }
 
 type taskHandler struct {
 	fileRepo         repo.FileRepo
 	taskRepo         repo.TaskRepo
-	profileRepo      repo.ProfileRepo
+	tagRepo          repo.TagRepo
 	queryRepo        repo.QueryRepo
 	mappingIDHandler MappingIDHandler
-	producer         *mq.Producer
 }
 
 func NewTaskHandler(fileRepo repo.FileRepo, taskRepo repo.TaskRepo,
-	profileRepo repo.ProfileRepo, queryRepo repo.QueryRepo, mappingIDHandler MappingIDHandler, producer *mq.Producer) TaskHandler {
-	return &taskHandler{
+	tagRepo repo.TagRepo, queryRepo repo.QueryRepo, mappingIDHandler MappingIDHandler) TaskHandler {
+
+	h := &taskHandler{
 		fileRepo:         fileRepo,
 		taskRepo:         taskRepo,
-		profileRepo:      profileRepo,
+		tagRepo:          tagRepo,
 		queryRepo:        queryRepo,
 		mappingIDHandler: mappingIDHandler,
-		producer:         producer,
 	}
+
+	h.newTaskProcessor(10)
+
+	return h
 }
 
-type CreateFileUploadTaskRequest struct {
-	*router.FileInfo `json:"file_info,omitempty"`
+func (h *taskHandler) newTaskProcessor(concurrency uint32) {
+	startTaskOnce.Do(func() {
+		go func() {
+			var (
+				g = new(errgroup.Group)
+				c = make(chan struct{}, concurrency)
+			)
+			for {
+				select {
+				case task := <-queue:
+					c <- struct{}{}
 
-	ProfileID    *uint64 `schema:"profile_id" json:"profile_id,omitempty"`
-	ProfileValue *string `schema:"profile_value" json:"profile_value,omitempty"`
-	ProfileType  *uint32 `schema:"profile_type" json:"profile_type,omitempty"`
-	Action       *uint32 `schema:"action" json:"action,omitempty"`
-}
+					func() {
+						defer func() {
+							<-c
+						}()
 
-func (req *CreateFileUploadTaskRequest) GetAction() uint32 {
-	if req != nil && req.Action != nil {
-		return *req.Action
-	}
-	return 0
-}
-
-func (req *CreateFileUploadTaskRequest) GetProfileID() uint64 {
-	if req != nil && req.ProfileID != nil {
-		return *req.ProfileID
-	}
-	return 0
-}
-
-func (req *CreateFileUploadTaskRequest) GetProfileType() uint32 {
-	if req != nil && req.ProfileType != nil {
-		return *req.ProfileType
-	}
-	return 0
-}
-
-type CreateFileUploadTaskResponse struct {
-	Task *entity.Task `json:"task,omitempty"`
-}
-
-var CreateFileUploadTaskValidator = validator.MustForm(map[string]validator.Validator{
-	"profile_id": &validator.UInt64{},
-	"profile_value": &validator.String{
-		Optional: true,
-	},
-	"profile_type": &validator.UInt32{
-		Min: goutil.Uint32(uint32(entity.ProfileTypeTag)),
-		Max: goutil.Uint32(uint32(entity.ProfileTypeTag)),
-	},
-	"action": &validator.UInt32{
-		Optional: true,
-		Min:      goutil.Uint32(uint32(entity.TaskActionAdd)),
-		Max:      goutil.Uint32(uint32(entity.TaskActionDelete)),
-	},
-	"file_info": FileInfoValidator(false, 5<<24, []string{"text/plain", "text/csv"}),
-})
-
-func (h *taskHandler) CreateFileUploadTask(ctx context.Context, req *CreateFileUploadTaskRequest, res *CreateFileUploadTaskResponse) error {
-	err := CreateFileUploadTaskValidator.Validate(req)
-	if err != nil {
-		return errutil.ValidationError(err)
-	}
-
-	now := time.Now().Unix()
-	task := &entity.Task{
-		TagID:      nil, // to be set by PreCreate
-		TagValue:   nil, // to be set by PreCreate
-		FileName:   goutil.String(req.FileHeader.Filename),
-		FileKey:    goutil.String(h.generateFileKey(req.FileHeader.Filename)),
-		Status:     goutil.Uint32(uint32(entity.TaskStatusPending)),
-		URL:        goutil.String(""),
-		Action:     req.Action,
-		CreateTime: goutil.Uint64(uint64(now)),
-		UpdateTime: goutil.Uint64(uint64(now)),
-	}
-
-	c := NewTaskCreator(h.profileRepo, req.GetProfileID(), req.GetProfileType(), req.ProfileValue)
-	task, err = c.PreCreate(ctx, task)
-	if err != nil {
-		return errutil.ValidationError(err)
-	}
-
-	url, err := h.fileRepo.Upload(ctx, task.GetFileKey(), req.File)
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("upload file %s failed, err: %v", task.GetFileName(), err)
-		return err
-	}
-	task.URL = goutil.String(url)
-
-	id, err := h.taskRepo.Create(ctx, task)
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("create task failed: %v", err)
-		return err
-	}
-	task.ID = goutil.Uint64(id)
-
-	// no need to return error
-	go func() {
-		for i := 0; i < 5; i++ {
-			if err := h.producer.SendMessage(&mq.Message{
-				Payload: mq.PayloadNotifyCreateTask,
-				Key:     fmt.Sprint(req.GetProfileID()),
-				Body: &mq.NotifyCreateTask{
-					TaskID: goutil.Uint64(id),
-				},
-			}); err != nil {
-				log.Ctx(ctx).Error().Msgf("send message failed: %v, taskID: %v, try: %v", err, task.GetID(), i+1)
-				time.Sleep(1 * time.Second)
-			} else {
-				break
+						g.Go(func() error {
+							if err := h.processTask(task); err != nil {
+								return err
+							}
+							return nil
+						})
+					}()
+				}
 			}
-		}
-	}()
-
-	res.Task = task
-
-	return nil
+		}()
+	})
 }
 
-func (h *taskHandler) WriteFileToStorage(ctx context.Context, req *mq.NotifyCreateTask) error {
-	taskFilter := &repo.TaskFilter{
-		ID: req.TaskID,
-	}
-	task, err := h.taskRepo.Get(ctx, taskFilter)
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get task failed: %v", err)
-		return err
-	}
+func (h *taskHandler) processTask(task *entity.Task) error {
+	var (
+		err   error
+		logID = uuid.New()
+		ctx   = log.With().Str("log_id", logID.String()).Logger().WithContext(context.Background())
+	)
+
+	log.Ctx(ctx).Info().Msgf("processing task: %v", task.GetID())
 
 	if !task.IsPending() {
-		return fmt.Errorf("task is not pending, taskID: %d", task.GetID())
+		log.Ctx(ctx).Info().Msg("task is not pending")
+		return nil
 	}
 
-	tagRepo := h.profileRepo.ToTagRepo()
-	tag, err := tagRepo.Get(ctx, &repo.TagFilter{
+	tag, err := h.tagRepo.Get(ctx, &repo.TagFilter{
 		ID: task.TagID,
 	})
 	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get tag failed: %v", err)
+		log.Ctx(ctx).Error().Msgf("get tag err: %v", err)
 		return err
 	}
 
+	taskFilter := &repo.TaskFilter{
+		ID: task.ID,
+	}
 	defer func() {
 		taskStatus := entity.TaskStatusSuccess
 		if err != nil {
 			taskStatus = entity.TaskStatusFailed
 		}
 
-		err = h.taskRepo.Update(ctx, taskFilter, &entity.Task{
+		log.Ctx(ctx).Info().Msgf("task done! taskID: %v, task status: %v", task.GetID(), taskStatus)
+
+		if err = h.taskRepo.Update(ctx, taskFilter, &entity.Task{
 			Status: goutil.Uint32(uint32(taskStatus)),
-		})
-		if err != nil {
+		}); err != nil {
 			log.Ctx(ctx).Error().Msgf("update task status failed: %v, status: %v", err, taskStatus)
 		}
 	}()
 
+	// download file
 	var b []byte
 	b, err = h.fileRepo.Download(ctx, task.GetFileKey())
 	if err != nil {
@@ -211,14 +141,62 @@ func (h *taskHandler) WriteFileToStorage(ctx context.Context, req *mq.NotifyCrea
 		return err
 	}
 
-	scanner := bufio.NewScanner(bytes.NewReader(b))
-	udIDs := make([]string, 0)
-
+	var (
+		scanner      = bufio.NewScanner(bytes.NewReader(b))
+		udIDs        = make([]string, 0)
+		insertUdTags = make([]*entity.UdTag, 0)
+		deleteUdTags = make([]*entity.UdTag, 0)
+	)
+	// process file
 	for scanner.Scan() {
-		udIDs = append(udIDs, scanner.Text())
+		var (
+			line  = scanner.Text()
+			parts = strings.Split(line, ",")
+		)
+
+		if len(parts) == 0 || len(parts) > 2 {
+			log.Ctx(ctx).Error().Msgf("invalid line: %v", line)
+			continue
+		}
+
+		// check if valid email
+		udID := parts[0]
+		if _, err = mail.ParseAddress(udID); err != nil {
+			log.Ctx(ctx).Error().Msgf("invalid email address: %v", udID)
+			continue
+		}
+
+		// no mapping ID yet
+		udTag := &entity.UdTag{
+			MappingID: &entity.MappingID{
+				UdID: goutil.String(udID),
+			},
+			Tag: tag,
+		}
+
+		// check tag value
+		if len(parts) == 2 {
+			value := parts[1]
+			if value != "" {
+				if ok := tag.IsValidTagValue(value); !ok {
+					log.Ctx(ctx).Error().Msgf("invalid tag value, udID: %v, value: %v", udID, value)
+					continue
+				}
+				udTag.TagValue = goutil.String(value)
+			}
+		}
+
+		udIDs = append(udIDs, udID)
+
+		if udTag.TagValue == nil {
+			deleteUdTags = append(deleteUdTags, udTag)
+		} else {
+			insertUdTags = append(insertUdTags, udTag)
+		}
 	}
 
-	mappingIDs := make([]*entity.MappingID, 0, len(udIDs))
+	// get mapping IDs
+	mappingIDs := make(map[string]*entity.MappingID, len(insertUdTags))
 	for i := 0; i < len(udIDs); i += MappingIDsMaxSize {
 		end := i + MappingIDsMaxSize
 		if end > len(udIDs) {
@@ -230,27 +208,102 @@ func (h *taskHandler) WriteFileToStorage(ctx context.Context, req *mq.NotifyCrea
 		}
 		res := new(GetSetMappingIDsResponse)
 
-		if err := h.mappingIDHandler.GetSetMappingIDs(ctx, req, res); err != nil {
+		if err = h.mappingIDHandler.GetSetMappingIDs(ctx, req, res); err != nil {
 			log.Ctx(ctx).Error().Msgf("get set mapping ids failed: %v", err)
 			return err
 		}
 
-		mappingIDs = append(mappingIDs, res.MappingIDs...)
+		for _, mappingID := range res.MappingIDs {
+			mappingIDs[mappingID.GetUdID()] = mappingID
+		}
 	}
 
-	udTags := make([]*entity.UdTag, 0, len(mappingIDs))
-	for _, mappingID := range mappingIDs {
-		udTags = append(udTags, &entity.UdTag{
-			MappingID: mappingID,
-			Tag:       tag,
-			TagValue:  task.TagValue,
-		})
+	// process delete first
+	for _, udTag := range deleteUdTags {
+		fmt.Println(udTag)
 	}
 
-	if err := h.queryRepo.Insert(ctx, udTags); err != nil {
-		log.Ctx(ctx).Error().Msgf("insert ud tags failed: %v", err)
+	// process insert first
+	for _, udTag := range insertUdTags {
+		fmt.Println(udTag)
+	}
+
+	return nil
+}
+
+type CreateFileUploadTaskRequest struct {
+	TagID *uint64 `schema:"tag_id,omitempty"`
+
+	*router.FileMeta `json:"file_meta,omitempty"`
+}
+
+func (req *CreateFileUploadTaskRequest) GetTagID() uint64 {
+	if req != nil && req.TagID != nil {
+		return *req.TagID
+	}
+	return 0
+}
+
+type CreateFileUploadTaskResponse struct {
+	Task *entity.Task `json:"task,omitempty"`
+}
+
+var CreateFileUploadTaskValidator = validator.MustForm(map[string]validator.Validator{
+	"tag_id":    &validator.UInt64{},
+	"file_info": FileInfoValidator(false, 5<<24, []string{"text/plain", "text/csv"}),
+})
+
+func (h *taskHandler) CreateFileUploadTask(ctx context.Context, req *CreateFileUploadTaskRequest, res *CreateFileUploadTaskResponse) error {
+	err := CreateFileUploadTaskValidator.Validate(req)
+	if err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	_, err = h.tagRepo.Get(ctx, &repo.TagFilter{
+		ID:     req.TagID,
+		Status: goutil.Uint32(uint32(entity.TagStatusNormal)),
+	})
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get tag failed: %v", err)
 		return err
 	}
+
+	var (
+		fileName = req.FileHeader.Filename
+		fileKey  = h.generateFileKey(fileName)
+	)
+	url, err := h.fileRepo.Upload(ctx, fileKey, req.File)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("upload file %s failed, err: %v", fileName, err)
+		return err
+	}
+
+	now := time.Now().Unix()
+	task := &entity.Task{
+		TagID:      req.TagID,
+		FileName:   goutil.String(req.FileHeader.Filename),
+		FileKey:    goutil.String(h.generateFileKey(req.FileHeader.Filename)),
+		Status:     goutil.Uint32(uint32(entity.TaskStatusPending)),
+		URL:        goutil.String(url),
+		CreateTime: goutil.Uint64(uint64(now)),
+		UpdateTime: goutil.Uint64(uint64(now)),
+	}
+
+	id, err := h.taskRepo.Create(ctx, task)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("create task failed: %v", err)
+		return err
+	}
+	task.ID = goutil.Uint64(id)
+
+	go func() {
+		select {
+		case queue <- task:
+			log.Ctx(context.Background()).Info().Msgf("task sent for processing, taskID: %v", task.GetID())
+		}
+	}()
+
+	res.Task = task
 
 	return nil
 }
@@ -263,46 +316,4 @@ func (h *taskHandler) generateFileKey(fileName string) string {
 	hashValue := hFn.Sum(nil)
 
 	return fmt.Sprintf("f-%s", hex.EncodeToString(hashValue))
-}
-
-type TaskCreator interface {
-	PreCreate(ctx context.Context, task *entity.Task) (*entity.Task, error)
-}
-
-func NewTaskCreator(profileRepo repo.ProfileRepo, profileID uint64, profileType uint32, profileValue *string) TaskCreator {
-	switch profileType {
-	case uint32(entity.ProfileTypeTag):
-		return &tagTaskCreator{tagRepo: profileRepo.ToTagRepo(), profileID: profileID, profileValue: profileValue}
-	}
-	panic(fmt.Sprintf("task creator not implemented for profile type %v", profileType))
-}
-
-type tagTaskCreator struct {
-	profileID    uint64
-	profileValue *string
-	tagRepo      repo.TagRepo
-}
-
-func (c *tagTaskCreator) PreCreate(ctx context.Context, task *entity.Task) (*entity.Task, error) {
-	tag, err := c.tagRepo.Get(ctx, &repo.TagFilter{
-		ID:     goutil.Uint64(c.profileID),
-		Status: goutil.Uint32(uint32(entity.TagStatusNormal)),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	task.TagID = tag.ID
-
-	if task.IsAdd() {
-		if c.profileValue == nil {
-			return nil, errors.New("add must have profile value")
-		}
-		// TODO: validate tag value type and enum
-		task.TagValue = c.profileValue
-	} else if task.IsDelete() {
-		task.TagValue = nil
-	}
-
-	return task, nil
 }

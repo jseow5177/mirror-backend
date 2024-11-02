@@ -4,15 +4,11 @@ import (
 	"cdp/pkg/goutil"
 	"encoding/json"
 	"errors"
-)
-
-const (
-	MaxDecimalPlace = 8
+	"strconv"
 )
 
 var (
-	ErrInvalidTagValueType    = errors.New("invalid tag value type")
-	ErrDecimalPlaceNotAllowed = errors.New("decimal place not allowed")
+	ErrInvalidTagValueType = errors.New("invalid tag value type")
 )
 
 type TagStatus uint32
@@ -46,16 +42,7 @@ func CheckTagValueType(value uint32) error {
 	return nil
 }
 
-type TagExtInfo struct {
-	DecimalPlace *uint32 `json:"decimal_place,omitempty"`
-}
-
-func (e *TagExtInfo) GetDecimalPlace() uint32 {
-	if e != nil && e.DecimalPlace != nil {
-		return *e.DecimalPlace
-	}
-	return 0
-}
+type TagExtInfo struct{}
 
 func (e *TagExtInfo) ToString() (string, error) {
 	if e == nil {
@@ -161,4 +148,21 @@ func (e *Tag) IsNumeric() bool {
 
 func (e *Tag) IsFloat() bool {
 	return e.GetValueType() == uint32(TagValueTypeFloat)
+}
+
+func (e *Tag) IsValidTagValue(value string) bool {
+	switch e.GetValueType() {
+	case uint32(TagValueTypeStr):
+	case uint32(TagValueTypeInt):
+		if _, err := strconv.Atoi(value); err != nil {
+			return false
+		}
+	case uint32(TagValueTypeFloat):
+		if _, err := strconv.ParseFloat(value, 64); err != nil {
+			return false
+		}
+	default:
+		return false
+	}
+	return true
 }

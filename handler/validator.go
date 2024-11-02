@@ -31,7 +31,7 @@ type fileInfoValidator struct {
 }
 
 func (v *fileInfoValidator) Validate(value interface{}) error {
-	fileInfo, ok := value.(*router.FileInfo)
+	fileInfo, ok := value.(*router.FileMeta)
 	if !ok {
 		return errors.New("expect FileInfo")
 	}

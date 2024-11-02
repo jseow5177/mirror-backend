@@ -1,7 +1,6 @@
 package config
 
 import (
-	"cdp/pkg/mq"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,23 +9,22 @@ import (
 )
 
 type Config struct {
-	MetadataDB  MySQL               `json:"metadata_db"`
-	MappingIdDB MySQL               `json:"mapping_id_db"`
-	QueryDB     ClickHouse          `json:"query_db"`
-	FileStore   S3                  `json:"file_store"`
-	Producer    mq.ProducerConfig   `json:"producer"`
-	Consumers   []mq.ConsumerConfig `json:"consumers"`
+	MetadataDB  MySQL      `json:"metadata_db"`
+	MappingIdDB MySQL      `json:"mapping_id_db"`
+	QueryDB     ClickHouse `json:"query_db"`
+	FileStore   S3         `json:"file_store"`
 }
 
 type ClickHouse struct {
-	DbName                   string            `json:"db_name"`
-	Addr                     []string          `json:"addr"`
-	Debug                    bool              `json:"debug"`
-	MaxOpenConns             int               `json:"max_open_conns"`
-	MaxIdleConns             int               `json:"max_idle_conns"`
-	DialTimeoutSeconds       int               `json:"dial_timeout_seconds"`
-	ConnMaxLifetimeSeconds   int               `json:"conn_max_lifetime_seconds"`
-	TableNamesByTagValueType map[string]string `json:"table_names_by_tag_value_type"`
+	Database               string   `json:"database"`
+	Username               string   `json:"username"`
+	Password               string   `json:"password"`
+	Addr                   []string `json:"addr"`
+	Debug                  bool     `json:"debug"`
+	MaxOpenConns           int      `json:"max_open_conns"`
+	MaxIdleConns           int      `json:"max_idle_conns"`
+	DialTimeoutSeconds     int      `json:"dial_timeout_seconds"`
+	ConnMaxLifetimeSeconds int      `json:"conn_max_lifetime_seconds"`
 }
 
 type MySQL struct {
@@ -52,21 +50,21 @@ func (mysql *MySQL) ToDSN() string {
 func NewConfig() *Config {
 	return &Config{
 		MetadataDB: MySQL{
-			Username: "root",
+			Username: "admin",
 			Password: "",
 			Host:     "127.0.0.1",
 			Port:     3306,
 			Database: "metadata_db",
 		},
 		MappingIdDB: MySQL{
-			Username: "root",
+			Username: "admin",
 			Password: "",
 			Host:     "127.0.0.1",
 			Port:     3306,
 			Database: "mapping_id_db",
 		},
 		QueryDB: ClickHouse{
-			DbName:                 "cdp_db",
+			Database:               "cdp_db",
 			Addr:                   []string{"127.0.0.1:9000"},
 			Debug:                  true,
 			MaxOpenConns:           10,
@@ -75,24 +73,11 @@ func NewConfig() *Config {
 			ConnMaxLifetimeSeconds: 3600,
 		},
 		FileStore: S3{
-			Bucket:            "cdp-sg-test",
-			Region:            "us-east-1",
+			Bucket:            "cdp-file-store-test",
+			Region:            "ap-southeast-1",
 			AccessKeyID:       "",
 			SecretAccessKey:   "",
 			ExpirationSeconds: 7_776_000, // 3 months
-		},
-		Producer: mq.ProducerConfig{
-			Brokers: []string{"127.0.0.1:9092"},
-			Topics: map[uint32]string{
-				1: "notify_create_task",
-			},
-		},
-		Consumers: []mq.ConsumerConfig{
-			{
-				Brokers:       []string{"127.0.0.1:9092"},
-				Topic:         "notify_create_task",
-				ConsumerGroup: "cdp_notify_create_task",
-			},
 		},
 	}
 }

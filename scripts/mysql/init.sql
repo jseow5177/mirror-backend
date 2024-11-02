@@ -24,12 +24,11 @@ CREATE TABLE IF NOT EXISTS task_tab (
     `file_key` VARCHAR(64) NOT NULL,
     `url` VARCHAR(255) NOT NULL,
     `status` TINYINT UNSIGNED NOT NULL,
-    `action` TINYINT UNSIGNED NOT NULL,
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `idx_key` (`file_key`),
-    KEY `idx_tag_id_status_action` (`tag_id`, `status`, `action`)
+    KEY `idx_tag_id_status_action` (`tag_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE DATABASE IF NOT EXISTS mapping_id_db;

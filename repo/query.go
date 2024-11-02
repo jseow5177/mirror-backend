@@ -4,6 +4,7 @@ import (
 	"cdp/config"
 	"cdp/entity"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -27,14 +28,20 @@ type QueryRepo interface {
 }
 
 type queryRepo struct {
-	dbName string
-	conn   driver.Conn
+	database string
+	conn     driver.Conn
 }
 
 func NewQueryRepo(ctx context.Context, ckCfg config.ClickHouse) (QueryRepo, error) {
 	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr:            ckCfg.Addr,
-		Debug:           ckCfg.Debug,
+		Addr:  ckCfg.Addr,
+		Debug: ckCfg.Debug,
+		Auth: clickhouse.Auth{
+			Database: ckCfg.Database,
+			Username: ckCfg.Username,
+			Password: ckCfg.Password,
+		},
+		TLS:             &tls.Config{},
 		DialTimeout:     time.Duration(ckCfg.DialTimeoutSeconds) * time.Second,
 		ConnMaxLifetime: time.Duration(ckCfg.ConnMaxLifetimeSeconds) * time.Second,
 		MaxIdleConns:    ckCfg.MaxIdleConns,
@@ -49,8 +56,8 @@ func NewQueryRepo(ctx context.Context, ckCfg config.ClickHouse) (QueryRepo, erro
 	}
 
 	return &queryRepo{
-		dbName: ckCfg.DbName,
-		conn:   conn,
+		database: ckCfg.Database,
+		conn:     conn,
 	}, nil
 }
 
@@ -82,7 +89,7 @@ func (r *queryRepo) Insert(ctx context.Context, udTags []*entity.UdTag) error {
 					}
 
 					// convert to int
-					f = math.Round(f * math.Pow(10, float64(tag.ExtInfo.GetDecimalPlace())))
+					f = math.Round(f * math.Pow(10, 4))
 					tagValue = fmt.Sprint(int(f))
 				} else {
 					tagValue = *udTag.TagValue
@@ -107,9 +114,9 @@ func (r *queryRepo) Insert(ctx context.Context, udTags []*entity.UdTag) error {
 			continue
 		}
 
-		tabName := fmt.Sprintf(" %s.cdp_str_tab ", r.dbName)
+		tabName := fmt.Sprintf(" %s.cdp_str_tab ", r.database)
 		if i == 1 {
-			tabName = fmt.Sprintf(" %s.cdp_int_tab ", r.dbName)
+			tabName = fmt.Sprintf(" %s.cdp_int_tab ", r.database)
 		}
 
 		sql := "INSERT INTO" + tabName + " (`tag_id`, `mapping_id`, `ud_id`, `tag_value`) " + " VALUES " + strings.Join(data, ",")

@@ -4,7 +4,6 @@ import (
 	"cdp/config"
 	"cdp/handler"
 	"cdp/middleware"
-	"cdp/pkg/mq"
 	"cdp/pkg/router"
 	"cdp/pkg/service"
 	"cdp/repo"
@@ -34,9 +33,6 @@ type server struct {
 	taskRepo      repo.TaskRepo
 	mappingIDRepo repo.MappingIDRepo
 	queryRepo     repo.QueryRepo
-
-	producer  *mq.Producer
-	consumers []*mq.Consumer
 
 	// api handlers
 	tagHandler       handler.TagHandler
@@ -148,9 +144,6 @@ func (s *server) Start() error {
 		}
 	}()
 
-	// profile repo
-	profileRepo := repo.NewProfileRepo(s.tagRepo)
-
 	// query repo
 	s.queryRepo, err = repo.NewQueryRepo(s.ctx, s.cfg.QueryDB)
 	if err != nil {
@@ -166,57 +159,13 @@ func (s *server) Start() error {
 		}
 	}()
 
-	// ===== init consumers ===== //
-
-	for i, cfg := range s.cfg.Consumers {
-		var c *mq.Consumer
-		c, err = mq.NewConsumer(s.ctx, cfg)
-		if err != nil {
-			log.Ctx(s.ctx).Error().Msgf("init consumer failed, idx: %v, err: %v", i, err)
-			for i, c := range s.consumers {
-				if err := c.Close(); err != nil {
-					log.Ctx(s.ctx).Error().Msgf("close consumer failed, idx: %v, err: %v", i, err)
-				}
-			}
-			return err
-		}
-		s.consumers = append(s.consumers, c)
-	}
-	defer func() {
-		if err != nil {
-			for i, c := range s.consumers {
-				if err := c.Close(); err != nil {
-					log.Ctx(s.ctx).Error().Msgf("close consumer failed, idx: %v, err: %v", i, err)
-				}
-			}
-		}
-	}()
-
-	// ===== init mq producer ===== //
-
-	s.producer, err = mq.NewProducer(s.ctx, s.cfg.Producer)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init producer failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.producer != nil {
-			if err := s.producer.Close(); err != nil {
-				log.Ctx(s.ctx).Error().Msgf("close mq producer failed, err: %v", err)
-				return
-			}
-		}
-	}()
-
 	// ===== init handlers ===== //
 
 	s.tagHandler = handler.NewTagHandler(s.tagRepo)
 	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
-	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, profileRepo, s.queryRepo, s.mappingIDHandler, s.producer)
+	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 
 	// ===== start server ===== //
-
-	s.registerMQHandlers()
 
 	go func() {
 		addr := fmt.Sprintf(":%d", s.opt.Port)
@@ -275,19 +224,6 @@ func (s *server) Stop() error {
 		}
 	}
 
-	for i, c := range s.consumers {
-		if err := c.Close(); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close consumer failed, idx: %v, err: %v", i, err)
-		}
-	}
-
-	if s.producer != nil {
-		if err := s.producer.Close(); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close mq producer failed, err: %v", err)
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -322,7 +258,6 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.tagHandler.CreateTag(ctx, req.(*handler.CreateTagRequest), res.(*handler.CreateTagResponse))
 			},
-			ContentType: router.ContentTypeJSON,
 		},
 	})
 
@@ -336,7 +271,6 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.taskHandler.CreateFileUploadTask(ctx, req.(*handler.CreateFileUploadTaskRequest), res.(*handler.CreateFileUploadTaskResponse))
 			},
-			ContentType: router.ContentTypeFile,
 		},
 	})
 
@@ -350,7 +284,6 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.mappingIDHandler.GetMappingIDs(ctx, req.(*handler.GetMappingIDsRequest), res.(*handler.GetMappingIDsResponse))
 			},
-			ContentType: router.ContentTypeJSON,
 		},
 	})
 
@@ -364,21 +297,10 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.mappingIDHandler.GetSetMappingIDs(ctx, req.(*handler.GetSetMappingIDsRequest), res.(*handler.GetSetMappingIDsResponse))
 			},
-			ContentType: router.ContentTypeJSON,
 		},
 	})
 
 	return r
-}
-
-func (s *server) registerMQHandlers() {
-	mq.RegisterHandler(mq.PayloadNotifyCreateTask, func(ctx context.Context, msg *mq.Message) error {
-		req := new(mq.NotifyCreateTask)
-		if err := msg.ParseBody(req); err != nil {
-			return err
-		}
-		return s.taskHandler.WriteFileToStorage(ctx, req)
-	})
 }
 
 func initZeroLog(ctx context.Context, level string) context.Context {
