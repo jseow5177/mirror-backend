@@ -14,12 +14,8 @@ import (
 
 const insertTmpl = "(%v, %v, '%v', %v)" // tag_id, mapping_id, ud_id, tag_value
 
-type Query struct{}
-
-type Lookup struct{}
-
 type QueryRepo interface {
-	Select(ctx context.Context, query *Query) ([]string, error)
+	Select(ctx context.Context) ([]string, error)
 	Insert(ctx context.Context, udTags *entity.UdTags) error
 	Close(ctx context.Context) error
 }
@@ -99,7 +95,7 @@ func (r *queryRepo) Insert(ctx context.Context, udTags *entity.UdTags) error {
 	return r.conn.Exec(ctx, sql)
 }
 
-func (r *queryRepo) Select(_ context.Context, _ *Query) ([]string, error) {
+func (r *queryRepo) Select(_ context.Context) ([]string, error) {
 	return nil, nil
 }
 

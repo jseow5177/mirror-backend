@@ -1,5 +1,9 @@
 package goutil
 
+import (
+	"reflect"
+)
+
 func String(s string) *string {
 	return &s
 }
@@ -26,4 +30,39 @@ func Int(i int) *int {
 
 func Bool(b bool) *bool {
 	return &b
+}
+
+func AtLeastOne(args ...interface{}) bool {
+	for _, arg := range args {
+		if arg != nil && !reflect.ValueOf(arg).IsNil() {
+			return true
+		}
+	}
+	return false
+}
+
+func AtMostOne(args ...interface{}) bool {
+	var noneNil int
+	for _, arg := range args {
+		if arg != nil && !reflect.ValueOf(arg).IsNil() {
+			noneNil++
+			if noneNil > 1 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func MustHaveOne(args ...interface{}) bool {
+	var noneNil int
+	for _, arg := range args {
+		if arg != nil && !reflect.ValueOf(arg).IsNil() {
+			noneNil++
+			if noneNil > 1 {
+				return false
+			}
+		}
+	}
+	return noneNil == 1
 }

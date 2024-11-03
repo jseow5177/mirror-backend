@@ -72,11 +72,8 @@ type CreateTagResponse struct {
 }
 
 var CreateTagValidator = validator.MustForm(map[string]validator.Validator{
-	"name": TagNameValidator(false),
-	"desc": &validator.String{
-		Optional: false,
-		MaxLen:   200,
-	},
+	"name": ResourceNameValidator(false),
+	"desc": ResourceDescValidator(false),
 	"value_type": &validator.UInt32{
 		Optional:   false,
 		Validators: []validator.UInt32Func{entity.CheckTagValueType},
@@ -88,8 +85,7 @@ var CreateTagValidator = validator.MustForm(map[string]validator.Validator{
 })
 
 func (h *tagHandler) CreateTag(ctx context.Context, req *CreateTagRequest, res *CreateTagResponse) error {
-	err := CreateTagValidator.Validate(req)
-	if err != nil {
+	if err := CreateTagValidator.Validate(req); err != nil {
 		return errutil.ValidationError(err)
 	}
 
@@ -104,22 +100,24 @@ func (h *tagHandler) CreateTag(ctx context.Context, req *CreateTagRequest, res *
 		Name:   tag.Name,
 		Status: goutil.Uint32(uint32(entity.TagStatusNormal)),
 	}
-	if _, err := h.tagRepo.Get(ctx, f); err != nil {
-		if errors.Is(err, repo.ErrTagNotFound) {
-			id, err := h.tagRepo.Create(ctx, tag)
-			if err != nil {
-				log.Ctx(ctx).Error().Msgf("create tag failed: %v", err)
-				return err
-			}
+	_, err := h.tagRepo.Get(ctx, f)
+	if err == nil {
+		return errors.New("tag already exists")
+	}
 
-			tag.ID = goutil.Uint64(id)
-			res.Tag = tag
-
-			return nil
-		}
+	if !errors.Is(err, repo.ErrTagNotFound) {
 		log.Ctx(ctx).Error().Msgf("get tag failed: %v", err)
 		return err
 	}
 
-	return errors.New("tag already exists")
+	id, err := h.tagRepo.Create(ctx, tag)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("create tag failed: %v", err)
+		return err
+	}
+
+	tag.ID = goutil.Uint64(id)
+	res.Tag = tag
+
+	return nil
 }

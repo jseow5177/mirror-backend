@@ -29,6 +29,7 @@ type server struct {
 	cfg *config.Config
 
 	tagRepo       repo.TagRepo
+	segmentRepo   repo.SegmentRepo
 	fileRepo      repo.FileRepo
 	taskRepo      repo.TaskRepo
 	mappingIDRepo repo.MappingIDRepo
@@ -36,6 +37,7 @@ type server struct {
 
 	// api handlers
 	tagHandler       handler.TagHandler
+	segmentHandler   handler.SegmentHandler
 	taskHandler      handler.TaskHandler
 	mappingIDHandler handler.MappingIDHandler
 }
@@ -103,6 +105,20 @@ func (s *server) Start() error {
 		}
 	}()
 
+	s.segmentRepo, err = repo.NewSegmentRepo(s.ctx, s.cfg.MetadataDB)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init segment repo failed, err: %v", err)
+		return err
+	}
+	defer func() {
+		if err != nil && s.segmentRepo != nil {
+			if err := s.segmentRepo.Close(s.ctx); err != nil {
+				log.Ctx(s.ctx).Error().Msgf("close segment repo failed, err: %v", err)
+				return
+			}
+		}
+	}()
+
 	// file repo
 	s.fileRepo = repo.NewFileRepo(s.ctx, s.cfg.FileStore)
 	defer func() {
@@ -162,6 +178,7 @@ func (s *server) Start() error {
 	// ===== init handlers ===== //
 
 	s.tagHandler = handler.NewTagHandler(s.tagRepo)
+	s.segmentHandler = handler.NewSegmentHandler(s.tagRepo, s.segmentRepo)
 	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
 	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 
@@ -192,6 +209,13 @@ func (s *server) Stop() error {
 	if s.tagRepo != nil {
 		if err := s.tagRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close tag repo failed, err: %v", err)
+			return err
+		}
+	}
+
+	if s.segmentRepo != nil {
+		if err := s.segmentRepo.Close(s.ctx); err != nil {
+			log.Ctx(s.ctx).Error().Msgf("close segment repo failed, err: %v", err)
 			return err
 		}
 	}
@@ -257,6 +281,19 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.CreateTagResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.tagHandler.CreateTag(ctx, req.(*handler.CreateTagRequest), res.(*handler.CreateTagResponse))
+			},
+		},
+	})
+
+	// create_segment
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCreateSegment,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CreateSegmentRequest),
+			Res: new(handler.CreateSegmentResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.segmentHandler.CreateSegment(ctx, req.(*handler.CreateSegmentRequest), res.(*handler.CreateSegmentResponse))
 			},
 		},
 	})
