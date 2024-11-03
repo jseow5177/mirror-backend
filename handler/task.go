@@ -22,6 +22,8 @@ import (
 	"time"
 )
 
+const CK_INSERT_BATCH_SIZE = 10_000
+
 var queue = make(chan *entity.Task, 20)
 
 var startTaskOnce sync.Once
@@ -93,19 +95,6 @@ func (h *taskHandler) processTask(task *entity.Task) error {
 
 	log.Ctx(ctx).Info().Msgf("processing task: %v", task.GetID())
 
-	if !task.IsPending() {
-		log.Ctx(ctx).Info().Msg("task is not pending")
-		return nil
-	}
-
-	tag, err := h.tagRepo.Get(ctx, &repo.TagFilter{
-		ID: task.TagID,
-	})
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get tag err: %v", err)
-		return err
-	}
-
 	taskFilter := &repo.TaskFilter{
 		ID: task.ID,
 	}
@@ -123,6 +112,19 @@ func (h *taskHandler) processTask(task *entity.Task) error {
 			log.Ctx(ctx).Error().Msgf("update task status failed: %v, status: %v", err, taskStatus)
 		}
 	}()
+
+	if !task.IsPending() {
+		log.Ctx(ctx).Info().Msg("task is not pending")
+		return nil
+	}
+
+	tag, err := h.tagRepo.Get(ctx, &repo.TagFilter{
+		ID: task.TagID,
+	})
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get tag err: %v", err)
+		return err
+	}
 
 	// download file
 	var b []byte
@@ -142,10 +144,9 @@ func (h *taskHandler) processTask(task *entity.Task) error {
 	}
 
 	var (
-		scanner      = bufio.NewScanner(bytes.NewReader(b))
-		udIDs        = make([]string, 0)
-		insertUdTags = make([]*entity.UdTag, 0)
-		deleteUdTags = make([]*entity.UdTag, 0)
+		scanner = bufio.NewScanner(bytes.NewReader(b))
+		udIDs   = make([]string, 0)
+		udTags  = new(entity.UdTags)
 	)
 	// process file
 	for scanner.Scan() {
@@ -166,15 +167,8 @@ func (h *taskHandler) processTask(task *entity.Task) error {
 			continue
 		}
 
-		// no mapping ID yet
-		udTag := &entity.UdTag{
-			MappingID: &entity.MappingID{
-				UdID: goutil.String(udID),
-			},
-			Tag: tag,
-		}
-
 		// check tag value
+		var tagValue *string
 		if len(parts) == 2 {
 			value := parts[1]
 			if value != "" {
@@ -182,21 +176,24 @@ func (h *taskHandler) processTask(task *entity.Task) error {
 					log.Ctx(ctx).Error().Msgf("invalid tag value, udID: %v, value: %v", udID, value)
 					continue
 				}
-				udTag.TagValue = goutil.String(value)
+				tagValue = goutil.String(value)
 			}
 		}
 
-		udIDs = append(udIDs, udID)
-
-		if udTag.TagValue == nil {
-			deleteUdTags = append(deleteUdTags, udTag)
-		} else {
-			insertUdTags = append(insertUdTags, udTag)
+		// no mapping ID yet
+		udTag := &entity.UdTag{
+			MappingID: &entity.MappingID{
+				UdID: goutil.String(udID),
+			},
+			TagValue: tagValue,
 		}
+
+		udIDs = append(udIDs, udID)
+		udTags.Data = append(udTags.Data, udTag)
 	}
 
-	// get mapping IDs
-	mappingIDs := make(map[string]*entity.MappingID, len(insertUdTags))
+	// fetch mapping IDs
+	mappingIDs := make(map[string]*entity.MappingID)
 	for i := 0; i < len(udIDs); i += MappingIDsMaxSize {
 		end := i + MappingIDsMaxSize
 		if end > len(udIDs) {
@@ -218,14 +215,27 @@ func (h *taskHandler) processTask(task *entity.Task) error {
 		}
 	}
 
-	// process delete first
-	for _, udTag := range deleteUdTags {
-		fmt.Println(udTag)
-	}
+	// insert into CK
+	for i := 0; i < len(udTags.Data); i += CK_INSERT_BATCH_SIZE {
+		end := i + CK_INSERT_BATCH_SIZE
+		if end > len(udTags.Data) {
+			end = len(udTags.Data)
+		}
 
-	// process insert first
-	for _, udTag := range insertUdTags {
-		fmt.Println(udTag)
+		subUdTags := &entity.UdTags{
+			Tag:  tag,
+			Data: udTags.Data[i:end],
+		}
+
+		// set mapping ID
+		for _, udTag := range subUdTags.Data {
+			udTag.MappingID = mappingIDs[udTag.MappingID.GetUdID()]
+		}
+
+		if err = h.queryRepo.Insert(ctx, subUdTags); err != nil {
+			log.Ctx(ctx).Error().Msgf("failed to insert udTags into CK: %v", err)
+			return err
+		}
 	}
 
 	return nil

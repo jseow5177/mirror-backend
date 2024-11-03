@@ -166,3 +166,15 @@ func (e *Tag) IsValidTagValue(value string) bool {
 	}
 	return true
 }
+
+func (e *Tag) GetCkTagName() string {
+	switch e.GetValueType() {
+	case uint32(TagValueTypeInt):
+		return "cdp_int_tab"
+	case uint32(TagValueTypeFloat):
+		return "cdp_float_tab"
+	case uint32(TagValueTypeStr):
+		return "cdp_str_tab"
+	}
+	return ""
+}
