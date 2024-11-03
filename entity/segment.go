@@ -1,6 +1,8 @@
 package entity
 
-import "encoding/json"
+import (
+	"encoding/json"
+)
 
 const (
 	QueryOpAnd = "AND"
@@ -63,6 +65,13 @@ func (e *Lookup) GetEq() string {
 		return *e.Eq
 	}
 	return ""
+}
+
+func (e *Lookup) GetTagID() uint64 {
+	if e != nil && e.TagID != nil {
+		return *e.TagID
+	}
+	return 0
 }
 
 type Query struct {

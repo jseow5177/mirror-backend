@@ -161,7 +161,7 @@ func (s *server) Start() error {
 	}()
 
 	// query repo
-	s.queryRepo, err = repo.NewQueryRepo(s.ctx, s.cfg.QueryDB)
+	s.queryRepo, err = repo.NewQueryRepo(s.ctx, s.cfg.QueryDB, s.tagRepo)
 	if err != nil {
 		log.Ctx(s.ctx).Error().Msgf("init query repo failed, err: %v", err)
 		return err
@@ -178,7 +178,7 @@ func (s *server) Start() error {
 	// ===== init handlers ===== //
 
 	s.tagHandler = handler.NewTagHandler(s.tagRepo)
-	s.segmentHandler = handler.NewSegmentHandler(s.tagRepo, s.segmentRepo)
+	s.segmentHandler = handler.NewSegmentHandler(s.tagRepo, s.segmentRepo, s.queryRepo)
 	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
 	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 
@@ -294,6 +294,19 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.CreateSegmentResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.segmentHandler.CreateSegment(ctx, req.(*handler.CreateSegmentRequest), res.(*handler.CreateSegmentResponse))
+			},
+		},
+	})
+
+	// count_ud
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCountUd,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CountUdRequest),
+			Res: new(handler.CountUdResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.segmentHandler.CountUd(ctx, req.(*handler.CountUdRequest), res.(*handler.CountUdResponse))
 			},
 		},
 	})

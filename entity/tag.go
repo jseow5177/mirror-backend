@@ -167,7 +167,7 @@ func (e *Tag) IsValidTagValue(value string) bool {
 	return true
 }
 
-func (e *Tag) GetCkTagName() string {
+func (e *Tag) GetCkTabName() string {
 	switch e.GetValueType() {
 	case uint32(TagValueTypeInt):
 		return "cdp_int_tab"

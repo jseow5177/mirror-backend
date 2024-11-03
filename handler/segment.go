@@ -14,17 +14,20 @@ import (
 
 type SegmentHandler interface {
 	CreateSegment(ctx context.Context, req *CreateSegmentRequest, res *CreateSegmentResponse) error
+	CountUd(ctx context.Context, req *CountUdRequest, res *CountUdResponse) error
 }
 
 type segmentHandler struct {
 	segmentRepo repo.SegmentRepo
 	tagRepo     repo.TagRepo
+	queryRepo   repo.QueryRepo
 }
 
-func NewSegmentHandler(tagRepo repo.TagRepo, segmentRepo repo.SegmentRepo) SegmentHandler {
+func NewSegmentHandler(tagRepo repo.TagRepo, segmentRepo repo.SegmentRepo, queryRepo repo.QueryRepo) SegmentHandler {
 	return &segmentHandler{
 		tagRepo:     tagRepo,
 		segmentRepo: segmentRepo,
+		queryRepo:   queryRepo,
 	}
 }
 
@@ -92,6 +95,51 @@ func (h *segmentHandler) CreateSegment(ctx context.Context, req *CreateSegmentRe
 
 	segment.ID = goutil.Uint64(id)
 	res.Segment = segment
+
+	return nil
+}
+
+type CountUdRequest struct {
+	SegmentID *uint64 `json:"segment_id,omitempty"`
+}
+
+func (req *CountUdRequest) GetSegmentID() uint64 {
+	if req != nil && req.SegmentID != nil {
+		return *req.SegmentID
+	}
+	return 0
+}
+
+type CountUdResponse struct {
+	Count *uint64 `json:"count,omitempty"`
+}
+
+var CountUdValidator = validator.MustForm(map[string]validator.Validator{
+	"segment_id": &validator.UInt64{
+		Optional: false,
+	},
+})
+
+func (h *segmentHandler) CountUd(ctx context.Context, req *CountUdRequest, res *CountUdResponse) error {
+	if err := CountUdValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	segment, err := h.segmentRepo.Get(ctx, &repo.SegmentFilter{
+		ID: req.SegmentID,
+	})
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get segment failed: %v", err)
+		return err
+	}
+
+	count, err := h.queryRepo.Count(ctx, segment.Query)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get count failed: %v", err)
+		return err
+	}
+
+	res.Count = goutil.Uint64(count)
 
 	return nil
 }
