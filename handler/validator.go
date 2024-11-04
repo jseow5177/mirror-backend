@@ -14,6 +14,17 @@ import (
 
 const MaxQueryDepth = 5
 
+func PaginationValidator() validator.Validator {
+	return validator.OptionalForm(map[string]validator.Validator{
+		"page": &validator.UInt32{
+			Optional: true,
+		},
+		"limit": &validator.UInt32{
+			Optional: true,
+		},
+	})
+}
+
 func ResourceNameValidator(optional bool) validator.Validator {
 	return &validator.String{
 		Optional:  optional,

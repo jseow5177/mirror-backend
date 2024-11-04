@@ -5,6 +5,7 @@ import (
 	"cdp/pkg/httputil"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 	"mime"
@@ -13,6 +14,8 @@ import (
 	"reflect"
 	"strings"
 )
+
+const basePath = "/api/v1"
 
 type FileMeta struct {
 	File       multipart.File
@@ -24,7 +27,6 @@ var decoder = schema.NewDecoder()
 
 var (
 	ErrUnsupportedContentType = errors.New("unsupported content type")
-	ErrUnsupportedHttpMethod  = errors.New("unsupported http method")
 	ErrCannotSetFileInfo      = errors.New("cannot set file info")
 	ErrCannotDecodeUrlParams  = errors.New("cannot decode url params")
 )
@@ -68,7 +70,7 @@ func (r *HttpRouter) RegisterHttpRoute(hr *HttpRoute) {
 		}
 	}
 
-	r.Methods(hr.Method).Path(hr.Path).Handler(chain)
+	r.Methods(hr.Method).Path(fmt.Sprintf("%s%s", basePath, hr.Path)).Handler(chain)
 }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

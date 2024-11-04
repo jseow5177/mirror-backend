@@ -14,6 +14,7 @@ import (
 
 type TagHandler interface {
 	CreateTag(ctx context.Context, req *CreateTagRequest, res *CreateTagResponse) error
+	GetTags(ctx context.Context, req *GetTagsRequest, res *GetTagsResponse) error
 }
 
 type tagHandler struct {
@@ -24,6 +25,47 @@ func NewTagHandler(tagRepo repo.TagRepo) TagHandler {
 	return &tagHandler{
 		tagRepo: tagRepo,
 	}
+}
+
+type GetTagsRequest struct {
+	Name       *string            `json:"name,omitempty"`
+	Desc       *string            `json:"desc,omitempty"`
+	Pagination *entity.Pagination `json:"pagination,omitempty"`
+}
+
+type GetTagsResponse struct {
+	Tags       []*entity.Tag      `json:"tags,omitempty"`
+	Pagination *entity.Pagination `json:"pagination,omitempty"`
+}
+
+var GetTagsValidator = validator.MustForm(map[string]validator.Validator{
+	"name":       ResourceNameValidator(true),
+	"desc":       ResourceDescValidator(true),
+	"pagination": PaginationValidator(),
+})
+
+func (h *tagHandler) GetTags(ctx context.Context, req *GetTagsRequest, res *GetTagsResponse) error {
+	if err := GetTagsValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	tags, pagination, err := h.tagRepo.GetMany(ctx, &repo.TagFilter{
+		Name: req.Name,
+		Desc: req.Desc,
+		Pagination: &repo.Pagination{
+			Page:  goutil.Uint32(req.Pagination.GetPage()),
+			Limit: goutil.Uint32(req.Pagination.GetLimit()),
+		},
+	})
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get tags failed: %v", err)
+		return err
+	}
+
+	res.Tags = tags
+	res.Pagination = pagination
+
+	return nil
 }
 
 type CreateTagRequest struct {

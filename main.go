@@ -272,6 +272,19 @@ func (s *server) registerRoutes() http.Handler {
 		},
 	})
 
+	// get_tags
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetTags,
+		Method: http.MethodGet,
+		Handler: router.Handler{
+			Req: new(handler.GetTagsRequest),
+			Res: new(handler.GetTagsResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tagHandler.GetTags(ctx, req.(*handler.GetTagsRequest), res.(*handler.GetTagsResponse))
+			},
+		},
+	})
+
 	// create_tag
 	r.RegisterHttpRoute(&router.HttpRoute{
 		Path:   config.PathCreateTag,
