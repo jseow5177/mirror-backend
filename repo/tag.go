@@ -101,6 +101,7 @@ type TagRepo interface {
 	GetMany(ctx context.Context, f *TagFilter) ([]*entity.Tag, *entity.Pagination, error)
 	Create(ctx context.Context, tag *entity.Tag) (uint64, error)
 	Update(ctx context.Context, tag *entity.Tag) error
+	Count(ctx context.Context, f *TagFilter) (uint64, error)
 	Close(ctx context.Context) error
 }
 
@@ -114,6 +115,14 @@ func NewTagRepo(_ context.Context, mysqlCfg config.MySQL) (TagRepo, error) {
 		return nil, err
 	}
 	return &tagRepo{orm: orm}, nil
+}
+
+func (r *tagRepo) Count(_ context.Context, _ *TagFilter) (uint64, error) {
+	var count int64
+	if err := r.orm.Model(&Tag{}).Where("status != ?", entity.TagStatusDeleted).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return uint64(count), nil
 }
 
 func (r *tagRepo) Get(_ context.Context, f *TagFilter) (*entity.Tag, error) {
@@ -162,20 +171,14 @@ func (r *tagRepo) GetMany(_ context.Context, f *TagFilter) ([]*entity.Tag, *enti
 	}
 
 	var count int64
-	if err := r.orm.
-		Model(&Tag{}).
-		Where(cond, args...).Count(&count).Error; err != nil {
+	if err := r.orm.Model(&Tag{}).Where(cond, args...).Count(&count).Error; err != nil {
 		return nil, nil, err
 	}
 
 	offset := (page - 1) * limit
 
 	mTags := make([]*Tag, 0)
-	if err := r.orm.
-		Where(cond, args...).
-		Limit(int(limit + 1)).
-		Offset(int(offset)).
-		Find(&mTags).Error; err != nil {
+	if err := r.orm.Where(cond, args...).Limit(int(limit + 1)).Offset(int(offset)).Find(&mTags).Error; err != nil {
 		return nil, nil, err
 	}
 

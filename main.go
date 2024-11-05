@@ -275,12 +275,25 @@ func (s *server) registerRoutes() http.Handler {
 	// get_tags
 	r.RegisterHttpRoute(&router.HttpRoute{
 		Path:   config.PathGetTags,
-		Method: http.MethodGet,
+		Method: http.MethodPost,
 		Handler: router.Handler{
 			Req: new(handler.GetTagsRequest),
 			Res: new(handler.GetTagsResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.tagHandler.GetTags(ctx, req.(*handler.GetTagsRequest), res.(*handler.GetTagsResponse))
+			},
+		},
+	})
+
+	// count_tags
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCountTags,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CountTagsRequest),
+			Res: new(handler.CountTagsResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tagHandler.CountTags(ctx, req.(*handler.CountTagsRequest), res.(*handler.CountTagsResponse))
 			},
 		},
 	})

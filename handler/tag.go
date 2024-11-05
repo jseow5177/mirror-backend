@@ -15,6 +15,7 @@ import (
 type TagHandler interface {
 	CreateTag(ctx context.Context, req *CreateTagRequest, res *CreateTagResponse) error
 	GetTags(ctx context.Context, req *GetTagsRequest, res *GetTagsResponse) error
+	CountTags(ctx context.Context, req *CountTagsRequest, res *CountTagsResponse) error
 }
 
 type tagHandler struct {
@@ -25,6 +26,29 @@ func NewTagHandler(tagRepo repo.TagRepo) TagHandler {
 	return &tagHandler{
 		tagRepo: tagRepo,
 	}
+}
+
+type CountTagsRequest struct{}
+
+type CountTagsResponse struct {
+	Count *uint64 `json:"count,omitempty"`
+}
+
+var CountTagsValidator = validator.MustForm(map[string]validator.Validator{})
+
+func (h *tagHandler) CountTags(ctx context.Context, req *CountTagsRequest, res *CountTagsResponse) error {
+	if err := CountTagsValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	count, err := h.tagRepo.Count(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	res.Count = goutil.Uint64(count)
+
+	return nil
 }
 
 type GetTagsRequest struct {
