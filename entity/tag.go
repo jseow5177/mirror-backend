@@ -146,10 +146,6 @@ func (e *Tag) IsNumeric() bool {
 	}, e.GetValueType())
 }
 
-func (e *Tag) IsFloat() bool {
-	return e.GetValueType() == uint32(TagValueTypeFloat)
-}
-
 func (e *Tag) IsValidTagValue(value string) bool {
 	switch e.GetValueType() {
 	case uint32(TagValueTypeStr):

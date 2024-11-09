@@ -18,7 +18,7 @@ func (e *Pagination) GetLimit() uint32 {
 	if e != nil && e.Limit != nil {
 		return *e.Limit
 	}
-	return 10
+	return 0
 }
 
 func (e *Pagination) GetHasNext() bool {

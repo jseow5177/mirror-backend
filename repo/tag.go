@@ -12,8 +12,6 @@ import (
 	"gorm.io/gorm"
 )
 
-const defaultLimit = 5
-
 type Pagination struct {
 	Limit *uint32
 	Page  *uint32
@@ -160,30 +158,34 @@ func (r *tagRepo) GetMany(_ context.Context, f *TagFilter) ([]*entity.Tag, *enti
 	cond += "status != ?"
 	args = append(args, entity.TagStatusDeleted)
 
-	limit := f.Pagination.GetLimit()
-	if limit == 0 {
-		limit = defaultLimit
-	}
-
-	page := f.Pagination.GetPage()
-	if page == 0 {
-		page = 1
-	}
-
 	var count int64
 	if err := r.orm.Model(&Tag{}).Where(cond, args...).Count(&count).Error; err != nil {
 		return nil, nil, err
 	}
 
-	offset := (page - 1) * limit
+	var (
+		limit = f.Pagination.GetLimit()
+		page  = f.Pagination.GetPage()
+	)
+	if page == 0 {
+		page = 1
+	}
 
-	mTags := make([]*Tag, 0)
-	if err := r.orm.Where(cond, args...).Limit(int(limit + 1)).Offset(int(offset)).Find(&mTags).Error; err != nil {
+	var (
+		offset = (page - 1) * limit
+		mTags  = make([]*Tag, 0)
+	)
+	query := r.orm.Where(cond, args...).Offset(int(offset))
+	if limit > 0 {
+		query = query.Limit(int(limit + 1))
+	}
+
+	if err := query.Find(&mTags).Error; err != nil {
 		return nil, nil, err
 	}
 
 	var hasNext bool
-	if len(mTags) > int(limit) {
+	if limit > 0 && len(mTags) > int(limit) {
 		hasNext = true
 		mTags = mTags[:limit]
 	}
@@ -199,7 +201,7 @@ func (r *tagRepo) GetMany(_ context.Context, f *TagFilter) ([]*entity.Tag, *enti
 
 	return tags, &entity.Pagination{
 		Page:    goutil.Uint32(page),
-		Limit:   goutil.Uint32(limit),
+		Limit:   f.Pagination.Limit, // may be nil
 		HasNext: goutil.Bool(hasNext),
 		Total:   goutil.Int64(count),
 	}, nil

@@ -77,8 +77,8 @@ func (h *tagHandler) GetTags(ctx context.Context, req *GetTagsRequest, res *GetT
 		Name: req.Name,
 		Desc: req.Desc,
 		Pagination: &repo.Pagination{
-			Page:  goutil.Uint32(req.Pagination.GetPage()),
-			Limit: goutil.Uint32(req.Pagination.GetLimit()),
+			Page:  req.Pagination.Page,
+			Limit: req.Pagination.Limit,
 		},
 	})
 	if err != nil {
