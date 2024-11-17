@@ -82,7 +82,7 @@ func (v *queryValidator) validateQuery(ctx context.Context, query *entity.Query,
 	}
 
 	if !goutil.MustHaveOne(query.Queries, query.Lookups) {
-		return errors.New("query cannot both queries and lookups")
+		return errors.New("query cannot have both queries and lookups")
 	}
 
 	if query.GetOp() != entity.QueryOpAnd && query.GetOp() != entity.QueryOpOr {
@@ -133,6 +133,9 @@ func (v *queryValidator) validateLookup(ctx context.Context, lookup *entity.Look
 	}
 
 	if lookup.In != nil {
+		if len(lookup.In) == 0 {
+			return fmt.Errorf("include cannot be empty")
+		}
 		for _, in := range lookup.In {
 			if ok := tag.IsValidTagValue(in); !ok {
 				return fmt.Errorf(errTmpl, in)

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/rs/cors"
 	"github.com/rs/zerolog"
 	"math/rand"
 	"net"
@@ -194,7 +195,7 @@ func (s *server) Start() error {
 				return s.ctx
 			},
 			Addr:    addr,
-			Handler: middleware.Log(s.registerRoutes()),
+			Handler: middleware.Log(cors.Default().Handler(s.registerRoutes())),
 		}
 		err := httpServer.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -285,6 +286,19 @@ func (s *server) registerRoutes() http.Handler {
 		},
 	})
 
+	// get_segments
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetSegments,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetSegmentsRequest),
+			Res: new(handler.GetSegmentsResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.segmentHandler.GetSegments(ctx, req.(*handler.GetSegmentsRequest), res.(*handler.GetSegmentsResponse))
+			},
+		},
+	})
+
 	// count_tags
 	r.RegisterHttpRoute(&router.HttpRoute{
 		Path:   config.PathCountTags,
@@ -294,6 +308,19 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.CountTagsResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.tagHandler.CountTags(ctx, req.(*handler.CountTagsRequest), res.(*handler.CountTagsResponse))
+			},
+		},
+	})
+
+	// count_segments
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCountSegments,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CountSegmentsRequest),
+			Res: new(handler.CountSegmentsResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.segmentHandler.CountSegments(ctx, req.(*handler.CountSegmentsRequest), res.(*handler.CountSegmentsResponse))
 			},
 		},
 	})
@@ -333,6 +360,19 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.CountUdResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.segmentHandler.CountUd(ctx, req.(*handler.CountUdRequest), res.(*handler.CountUdResponse))
+			},
+		},
+	})
+
+	// preview_ud
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathPreviewUd,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.PreviewUdRequest),
+			Res: new(handler.PreviewUdResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.segmentHandler.PreviewUd(ctx, req.(*handler.PreviewUdRequest), res.(*handler.PreviewUdResponse))
 			},
 		},
 	})

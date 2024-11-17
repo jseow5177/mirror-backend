@@ -105,7 +105,7 @@ type Segment struct {
 	ID         *uint64 `json:"id,omitempty"`
 	Name       *string `json:"name,omitempty"`
 	Desc       *string `json:"desc,omitempty"`
-	Query      *Query  `json:"query,omitempty"`
+	Criteria   *Query  `json:"query,omitempty"`
 	Status     *uint32 `json:"status,omitempty"`
 	CreateTime *uint64 `json:"create_time,omitempty"`
 	UpdateTime *uint64 `json:"update_time,omitempty"`
@@ -125,9 +125,9 @@ func (e *Segment) GetName() string {
 	return ""
 }
 
-func (e *Segment) GetQuery() *Query {
-	if e != nil && e.Query != nil {
-		return e.Query
+func (e *Segment) GetCriteria() *Query {
+	if e != nil && e.Criteria != nil {
+		return e.Criteria
 	}
 	return nil
 }

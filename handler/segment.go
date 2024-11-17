@@ -15,6 +15,9 @@ import (
 type SegmentHandler interface {
 	CreateSegment(ctx context.Context, req *CreateSegmentRequest, res *CreateSegmentResponse) error
 	CountUd(ctx context.Context, req *CountUdRequest, res *CountUdResponse) error
+	GetSegments(ctx context.Context, req *GetSegmentsRequest, res *GetSegmentsResponse) error
+	PreviewUd(ctx context.Context, req *PreviewUdRequest, res *PreviewUdResponse) error
+	CountSegments(ctx context.Context, req *CountSegmentsRequest, res *CountSegmentsResponse) error
 }
 
 type segmentHandler struct {
@@ -31,21 +34,85 @@ func NewSegmentHandler(tagRepo repo.TagRepo, segmentRepo repo.SegmentRepo, query
 	}
 }
 
+type CountSegmentsRequest struct{}
+
+type CountSegmentsResponse struct {
+	Count *uint64 `json:"count,omitempty"`
+}
+
+var CountSegmentsValidator = validator.MustForm(map[string]validator.Validator{})
+
+func (h *segmentHandler) CountSegments(ctx context.Context, req *CountSegmentsRequest, res *CountSegmentsResponse) error {
+	if err := CountSegmentsValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	count, err := h.segmentRepo.Count(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	res.Count = goutil.Uint64(count)
+
+	return nil
+}
+
+type GetSegmentsRequest struct {
+	Name       *string            `json:"name,omitempty"`
+	Desc       *string            `json:"desc,omitempty"`
+	Pagination *entity.Pagination `json:"pagination,omitempty"`
+}
+
+type GetSegmentsResponse struct {
+	Segments   []*entity.Segment  `json:"segments,omitempty"`
+	Pagination *entity.Pagination `json:"pagination,omitempty"`
+}
+
+var GetSegmentsValidator = validator.MustForm(map[string]validator.Validator{
+	"name":       ResourceNameValidator(true),
+	"desc":       ResourceDescValidator(true),
+	"pagination": PaginationValidator(),
+})
+
+func (h *segmentHandler) GetSegments(ctx context.Context, req *GetSegmentsRequest, res *GetSegmentsResponse) error {
+	if err := GetSegmentsValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	segments, pagination, err := h.segmentRepo.GetMany(ctx, &repo.SegmentFilter{
+		Name: req.Name,
+		Desc: req.Desc,
+		Pagination: &repo.Pagination{
+			Page:  req.Pagination.Page,
+			Limit: req.Pagination.Limit,
+		},
+	})
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get segments failed: %v", err)
+		return err
+	}
+
+	res.Segments = segments
+	res.Pagination = pagination
+
+	return nil
+}
+
 type CreateSegmentRequest struct {
-	Name  *string       `json:"name,omitempty"`
-	Desc  *string       `json:"desc,omitempty"`
-	Query *entity.Query `json:"query,omitempty"`
+	Name     *string       `json:"name,omitempty"`
+	Desc     *string       `json:"desc,omitempty"`
+	Criteria *entity.Query `json:"criteria,omitempty"`
 }
 
 func (req *CreateSegmentRequest) ToSegment() *entity.Segment {
-	if req.Query == nil {
-		req.Query = new(entity.Query)
+	if req.Criteria == nil {
+		req.Criteria = new(entity.Query)
 	}
 	now := time.Now()
 	return &entity.Segment{
 		Name:       req.Name,
 		Desc:       req.Desc,
-		Query:      req.Query,
+		Criteria:   req.Criteria,
 		Status:     goutil.Uint32(uint32(entity.SegmentStatusNormal)),
 		CreateTime: goutil.Uint64(uint64(now.Unix())),
 		UpdateTime: goutil.Uint64(uint64(now.Unix())),
@@ -67,7 +134,7 @@ func (h *segmentHandler) CreateSegment(ctx context.Context, req *CreateSegmentRe
 	}
 
 	v := NewQueryValidator(h.tagRepo, false)
-	if err := v.Validate(ctx, req.Query); err != nil {
+	if err := v.Validate(ctx, req.Criteria); err != nil {
 		return errutil.ValidationError(err)
 	}
 
@@ -79,7 +146,7 @@ func (h *segmentHandler) CreateSegment(ctx context.Context, req *CreateSegmentRe
 	}
 	_, err := h.segmentRepo.Get(ctx, f)
 	if err == nil {
-		return errors.New("segment already exists")
+		return errutil.ValidationError(errors.New("segment already exists"))
 	}
 
 	if !errors.Is(err, repo.ErrSegmentNotFound) {
@@ -133,13 +200,46 @@ func (h *segmentHandler) CountUd(ctx context.Context, req *CountUdRequest, res *
 		return err
 	}
 
-	count, err := h.queryRepo.Count(ctx, segment.Query)
+	count, err := h.queryRepo.Count(ctx, segment.Criteria)
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get count failed: %v", err)
 		return err
 	}
 
 	res.Count = goutil.Uint64(count)
+
+	return nil
+}
+
+type PreviewUdRequest struct {
+	Criteria *entity.Query `json:"criteria,omitempty"`
+}
+
+type PreviewUdResponse struct {
+	Count *int64 `json:"count,omitempty"`
+}
+
+var PreviewUdValidator = validator.MustForm(map[string]validator.Validator{})
+
+func (h *segmentHandler) PreviewUd(ctx context.Context, req *PreviewUdRequest, res *PreviewUdResponse) error {
+	if err := PreviewUdValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	v := NewQueryValidator(h.tagRepo, false)
+	if err := v.Validate(ctx, req.Criteria); err != nil {
+		log.Ctx(ctx).Warn().Msgf("validate segment failed: %v", err)
+		res.Count = goutil.Int64(-1)
+		return nil
+	}
+
+	count, err := h.queryRepo.Count(ctx, req.Criteria)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get preview count failed: %v", err)
+		return err
+	}
+
+	res.Count = goutil.Int64(int64(count))
 
 	return nil
 }

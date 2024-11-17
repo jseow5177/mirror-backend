@@ -77,7 +77,7 @@ type TagFilter struct {
 	Name       *string
 	Desc       *string
 	Status     *uint32
-	Pagination *Pagination
+	Pagination *Pagination `gorm:"-"`
 }
 
 func (f *TagFilter) GetName() string {
