@@ -29,7 +29,6 @@ func ResourceNameValidator(optional bool) validator.Validator {
 	return &validator.String{
 		Optional:  optional,
 		UnsetZero: true,
-		MinLen:    2,
 		MaxLen:    60,
 		Regex:     regexp.MustCompile(`^[0-9a-zA-Z_.\s]+$`),
 	}

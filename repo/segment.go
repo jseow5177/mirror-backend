@@ -119,7 +119,7 @@ func (r *segmentRepo) GetMany(_ context.Context, f *SegmentFilter) ([]*entity.Se
 		if cond != "" {
 			cond += " OR "
 		}
-		cond += "LOWER(\"desc\") LIKE ?"
+		cond += "LOWER(`desc`) LIKE ?"
 		args = append(args, fmt.Sprintf("%%%s%%", f.GetDesc()))
 	}
 

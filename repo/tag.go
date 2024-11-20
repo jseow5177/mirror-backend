@@ -148,7 +148,7 @@ func (r *tagRepo) GetMany(_ context.Context, f *TagFilter) ([]*entity.Tag, *enti
 		if cond != "" {
 			cond += " OR "
 		}
-		cond += "LOWER(\"desc\") LIKE ?"
+		cond += "LOWER(`desc`) LIKE ?"
 		args = append(args, fmt.Sprintf("%%%s%%", f.GetDesc()))
 	}
 
