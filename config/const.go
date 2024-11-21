@@ -13,6 +13,8 @@ const (
 	PathCountUd              = "/count_ud"
 	PathPreviewUd            = "/preview_ud"
 	PathCountSegments        = "/count_segments"
+	PathCreateEmail          = "/create_email"
+	PathGetEmails            = "/get_emails"
 )
 
 const (

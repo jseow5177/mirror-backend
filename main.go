@@ -35,12 +35,14 @@ type server struct {
 	taskRepo      repo.TaskRepo
 	mappingIDRepo repo.MappingIDRepo
 	queryRepo     repo.QueryRepo
+	emailRepo     repo.EmailRepo
 
 	// api handlers
 	tagHandler       handler.TagHandler
 	segmentHandler   handler.SegmentHandler
 	taskHandler      handler.TaskHandler
 	mappingIDHandler handler.MappingIDHandler
+	emailHandler     handler.EmailHandler
 }
 
 func main() {
@@ -161,6 +163,21 @@ func (s *server) Start() error {
 		}
 	}()
 
+	// email repo
+	s.emailRepo, err = repo.NewEmailRepo(s.ctx, s.cfg.MetadataDB)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init email repo failed, err: %v", err)
+		return err
+	}
+	defer func() {
+		if err != nil && s.emailRepo != nil {
+			if err := s.emailRepo.Close(s.ctx); err != nil {
+				log.Ctx(s.ctx).Error().Msgf("close email repo failed, err: %v", err)
+				return
+			}
+		}
+	}()
+
 	// query repo
 	s.queryRepo, err = repo.NewQueryRepo(s.ctx, s.cfg.QueryDB, s.tagRepo)
 	if err != nil {
@@ -182,6 +199,7 @@ func (s *server) Start() error {
 	s.segmentHandler = handler.NewSegmentHandler(s.tagRepo, s.segmentRepo, s.queryRepo)
 	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
 	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
+	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
 
 	// ===== start server ===== //
 
@@ -238,6 +256,13 @@ func (s *server) Stop() error {
 	if s.mappingIDRepo != nil {
 		if err := s.mappingIDRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close mapping id repo failed, err: %v", err)
+			return err
+		}
+	}
+
+	if s.emailRepo != nil {
+		if err := s.emailRepo.Close(s.ctx); err != nil {
+			log.Ctx(s.ctx).Error().Msgf("close email repo failed, err: %v", err)
 			return err
 		}
 	}
@@ -412,6 +437,32 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.GetSetMappingIDsResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.mappingIDHandler.GetSetMappingIDs(ctx, req.(*handler.GetSetMappingIDsRequest), res.(*handler.GetSetMappingIDsResponse))
+			},
+		},
+	})
+
+	// create_email
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCreateEmail,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CreateEmailRequest),
+			Res: new(handler.CreateEmailResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.emailHandler.CreateEmail(ctx, req.(*handler.CreateEmailRequest), res.(*handler.CreateEmailResponse))
+			},
+		},
+	})
+
+	// get_emails
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetEmails,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetEmailsRequest),
+			Res: new(handler.GetEmailsResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.emailHandler.GetEmails(ctx, req.(*handler.GetEmailsRequest), res.(*handler.GetEmailsResponse))
 			},
 		},
 	})
