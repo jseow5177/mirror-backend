@@ -107,7 +107,7 @@ func (h *taskHandler) processTask(task *entity.Task) error {
 		log.Ctx(ctx).Info().Msgf("task done! taskID: %v, task status: %v", task.GetID(), taskStatus)
 
 		if err = h.taskRepo.Update(ctx, taskFilter, &entity.Task{
-			Status: goutil.Uint32(uint32(taskStatus)),
+			Status: taskStatus,
 		}); err != nil {
 			log.Ctx(ctx).Error().Msgf("update task status failed: %v, status: %v", err, taskStatus)
 		}
@@ -136,7 +136,7 @@ func (h *taskHandler) processTask(task *entity.Task) error {
 
 	// set task to processing
 	err = h.taskRepo.Update(ctx, taskFilter, &entity.Task{
-		Status: goutil.Uint32(uint32(entity.TaskStatusProcessing)),
+		Status: entity.TaskStatusProcessing,
 	})
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("update task to processing failed: %v", err)
@@ -293,7 +293,7 @@ func (h *taskHandler) CreateFileUploadTask(ctx context.Context, req *CreateFileU
 		TagID:      req.TagID,
 		FileName:   goutil.String(req.FileHeader.Filename),
 		FileKey:    goutil.String(h.generateFileKey(req.FileHeader.Filename)),
-		Status:     goutil.Uint32(uint32(entity.TaskStatusPending)),
+		Status:     entity.TaskStatusPending,
 		URL:        goutil.String(url),
 		CreateTime: goutil.Uint64(uint64(now)),
 		UpdateTime: goutil.Uint64(uint64(now)),

@@ -58,6 +58,20 @@ func (m *Tag) GetID() uint64 {
 	return 0
 }
 
+func (m *Tag) GetStatus() uint32 {
+	if m != nil && m.Status != nil {
+		return *m.Status
+	}
+	return 0
+}
+
+func (m *Tag) GetValueType() uint32 {
+	if m != nil && m.ValueType != nil {
+		return *m.ValueType
+	}
+	return 0
+}
+
 func (m *Tag) GetEnum() string {
 	if m != nil && m.Enum != nil {
 		return *m.Enum
@@ -278,8 +292,8 @@ func ToTag(tag *Tag) (*entity.Tag, error) {
 		ID:         tag.ID,
 		Name:       tag.Name,
 		Desc:       tag.Desc,
-		Status:     tag.Status,
-		ValueType:  tag.ValueType,
+		Status:     entity.TagStatus(tag.GetStatus()),
+		ValueType:  entity.TagValueType(tag.GetValueType()),
 		Enum:       enum,
 		ExtInfo:    extInfo,
 		CreateTime: tag.CreateTime,

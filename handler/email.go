@@ -40,7 +40,7 @@ func (req *CreateEmailRequest) ToEmail() *entity.Email {
 		EmailDesc:  req.EmailDesc,
 		Json:       req.Json,
 		Html:       req.Html,
-		Status:     goutil.Uint32(uint32(entity.EmailStatusNormal)),
+		Status:     entity.EmailStatusNormal,
 		CreateTime: goutil.Uint64(uint64(now.Unix())),
 		UpdateTime: goutil.Uint64(uint64(now.Unix())),
 	}

@@ -113,7 +113,7 @@ func (req *CreateSegmentRequest) ToSegment() *entity.Segment {
 		Name:       req.Name,
 		Desc:       req.Desc,
 		Criteria:   req.Criteria,
-		Status:     goutil.Uint32(uint32(entity.SegmentStatusNormal)),
+		Status:     entity.SegmentStatusNormal,
 		CreateTime: goutil.Uint64(uint64(now.Unix())),
 		UpdateTime: goutil.Uint64(uint64(now.Unix())),
 	}
