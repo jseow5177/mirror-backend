@@ -44,6 +44,13 @@ func (m *Segment) GetCriteria() string {
 	return ""
 }
 
+func (m *Segment) GetStatus() uint32 {
+	if m != nil && m.Status != nil {
+		return *m.Status
+	}
+	return 0
+}
+
 type SegmentFilter struct {
 	ID         *uint64
 	Name       *string
@@ -216,7 +223,7 @@ func ToSegmentModel(segment *entity.Segment) (*Segment, error) {
 		ID:         segment.ID,
 		Name:       segment.Name,
 		Desc:       segment.Desc,
-		Status:     segment.Status,
+		Status:     goutil.Uint32(uint32(segment.GetStatus())),
 		Criteria:   goutil.String(query),
 		CreateTime: segment.CreateTime,
 		UpdateTime: segment.UpdateTime,
@@ -234,7 +241,7 @@ func ToSegment(segment *Segment) (*entity.Segment, error) {
 		Name:       segment.Name,
 		Desc:       segment.Desc,
 		Criteria:   query,
-		Status:     segment.Status,
+		Status:     entity.SegmentStatus(segment.GetStatus()),
 		CreateTime: segment.CreateTime,
 		UpdateTime: segment.UpdateTime,
 	}, nil

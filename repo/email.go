@@ -5,16 +5,22 @@ import (
 	"cdp/entity"
 	"cdp/pkg/goutil"
 	"context"
+	"errors"
 	"fmt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+)
+
+var (
+	ErrEmailNotFound = errors.New("email not found")
 )
 
 type Email struct {
 	ID         *uint64
 	Name       *string
 	EmailDesc  *string
-	Blob       *string
+	Json       *string
+	Html       *string
 	Status     *uint32
 	CreateTime *uint64
 	UpdateTime *uint64
@@ -27,6 +33,13 @@ func (m *Email) TableName() string {
 func (m *Email) GetID() uint64 {
 	if m != nil && m.ID != nil {
 		return *m.ID
+	}
+	return 0
+}
+
+func (m *Email) GetStatus() uint32 {
+	if m != nil && m.Status != nil {
+		return *m.Status
 	}
 	return 0
 }
@@ -79,6 +92,17 @@ func (r *emailRepo) Create(_ context.Context, email *entity.Email) (uint64, erro
 	}
 
 	return emailModel.GetID(), nil
+}
+
+func (r *emailRepo) Get(_ context.Context, f *EmailFilter) (*entity.Email, error) {
+	email := new(Email)
+	if err := r.orm.Where(f).First(email).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrEmailNotFound
+		}
+		return nil, err
+	}
+	return ToEmail(email), nil
 }
 
 func (r *emailRepo) GetMany(_ context.Context, f *EmailFilter) ([]*entity.Email, *entity.Pagination, error) {
@@ -170,8 +194,9 @@ func ToEmailModel(email *entity.Email) *Email {
 		ID:         email.ID,
 		Name:       email.Name,
 		EmailDesc:  email.EmailDesc,
-		Blob:       email.Blob,
-		Status:     email.Status,
+		Json:       email.Json,
+		Html:       email.Html,
+		Status:     goutil.Uint32(uint32(email.GetStatus())),
 		CreateTime: email.CreateTime,
 		UpdateTime: email.UpdateTime,
 	}
@@ -182,8 +207,9 @@ func ToEmail(email *Email) *entity.Email {
 		ID:         email.ID,
 		Name:       email.Name,
 		EmailDesc:  email.EmailDesc,
-		Blob:       email.Blob,
-		Status:     email.Status,
+		Json:       email.Json,
+		Html:       email.Html,
+		Status:     entity.EmailStatus(email.GetStatus()),
 		CreateTime: email.CreateTime,
 		UpdateTime: email.UpdateTime,
 	}

@@ -3,6 +3,7 @@ package repo
 import (
 	"cdp/config"
 	"cdp/entity"
+	"cdp/pkg/goutil"
 	"context"
 	"errors"
 	"gorm.io/driver/mysql"
@@ -34,6 +35,13 @@ func (m *Task) TableName() string {
 func (m *Task) GetID() uint64 {
 	if m != nil && m.ID != nil {
 		return *m.ID
+	}
+	return 0
+}
+
+func (m *Task) GetStatus() uint32 {
+	if m != nil && m.Status != nil {
+		return *m.Status
 	}
 	return 0
 }
@@ -111,7 +119,7 @@ func ToTaskModel(task *entity.Task) *Task {
 		FileName:   task.FileName,
 		FileKey:    task.FileKey,
 		URL:        task.URL,
-		Status:     task.Status,
+		Status:     goutil.Uint32(uint32(task.GetStatus())),
 		CreateTime: task.CreateTime,
 		UpdateTime: task.UpdateTime,
 	}
@@ -124,7 +132,7 @@ func ToTask(task *Task) *entity.Task {
 		FileName:   task.FileName,
 		FileKey:    task.FileKey,
 		URL:        task.URL,
-		Status:     task.Status,
+		Status:     entity.TaskStatus(task.GetStatus()),
 		CreateTime: task.CreateTime,
 		UpdateTime: task.UpdateTime,
 	}

@@ -58,15 +58,15 @@ func (e *TagExtInfo) ToString() (string, error) {
 }
 
 type Tag struct {
-	ID         *uint64     `json:"id,omitempty"`
-	Name       *string     `json:"name,omitempty"`
-	Desc       *string     `json:"desc,omitempty"`
-	Enum       []string    `json:"enum,omitempty"`
-	ValueType  *uint32     `json:"value_type,omitempty"`
-	Status     *uint32     `json:"status,omitempty"`
-	ExtInfo    *TagExtInfo `json:"ext_info,omitempty"`
-	CreateTime *uint64     `json:"create_time,omitempty"`
-	UpdateTime *uint64     `json:"update_time,omitempty"`
+	ID         *uint64      `json:"id,omitempty"`
+	Name       *string      `json:"name,omitempty"`
+	Desc       *string      `json:"desc,omitempty"`
+	Enum       []string     `json:"enum,omitempty"`
+	ValueType  TagValueType `json:"value_type,omitempty"`
+	Status     TagStatus    `json:"status,omitempty"`
+	ExtInfo    *TagExtInfo  `json:"ext_info,omitempty"`
+	CreateTime *uint64      `json:"create_time,omitempty"`
+	UpdateTime *uint64      `json:"update_time,omitempty"`
 }
 
 func (e *Tag) GetID() uint64 {
@@ -97,18 +97,18 @@ func (e *Tag) GetEnum() []string {
 	return nil
 }
 
-func (e *Tag) GetValueType() uint32 {
-	if e != nil && e.ValueType != nil {
-		return *e.ValueType
+func (e *Tag) GetValueType() TagValueType {
+	if e != nil {
+		return e.ValueType
 	}
-	return uint32(TagValueTypeUnknown)
+	return TagValueTypeUnknown
 }
 
-func (e *Tag) GetStatus() uint32 {
-	if e != nil && e.Status != nil {
-		return *e.Status
+func (e *Tag) GetStatus() TagStatus {
+	if e != nil {
+		return e.Status
 	}
-	return uint32(TagStatusUnknown)
+	return TagStatusUnknown
 }
 
 func (e *Tag) GetExtInfo() *TagExtInfo {
@@ -143,17 +143,17 @@ func (e *Tag) IsNumeric() bool {
 	return goutil.ContainsUint32([]uint32{
 		uint32(TagValueTypeInt),
 		uint32(TagValueTypeFloat),
-	}, e.GetValueType())
+	}, uint32(e.GetValueType()))
 }
 
 func (e *Tag) IsValidTagValue(value string) bool {
 	switch e.GetValueType() {
-	case uint32(TagValueTypeStr):
-	case uint32(TagValueTypeInt):
+	case TagValueTypeStr:
+	case TagValueTypeInt:
 		if _, err := strconv.Atoi(value); err != nil {
 			return false
 		}
-	case uint32(TagValueTypeFloat):
+	case TagValueTypeFloat:
 		if _, err := strconv.ParseFloat(value, 64); err != nil {
 			return false
 		}
@@ -165,12 +165,13 @@ func (e *Tag) IsValidTagValue(value string) bool {
 
 func (e *Tag) GetCkTabName() string {
 	switch e.GetValueType() {
-	case uint32(TagValueTypeInt):
+	case TagValueTypeInt:
 		return "cdp_int_tab"
-	case uint32(TagValueTypeFloat):
+	case TagValueTypeFloat:
 		return "cdp_float_tab"
-	case uint32(TagValueTypeStr):
+	case TagValueTypeStr:
 		return "cdp_str_tab"
+	default:
+		return ""
 	}
-	return ""
 }

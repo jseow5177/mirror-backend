@@ -31,15 +31,16 @@ CREATE TABLE IF NOT EXISTS segment_tab (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS email_tab (
-     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-     `name` VARCHAR(64) NOT NULL,
-     `email_desc` VARCHAR(255) NOT NULL,
-     `blob` TEXT NOT NULL,
-     `status` TINYINT UNSIGNED NOT NULL DEFAULT '1',
-     `create_time` BIGINT UNSIGNED NOT NULL,
-     `update_time` BIGINT UNSIGNED NOT NULL,
-     PRIMARY KEY (`id`),
-     KEY `idx_name_email_desc_status` (`name`, `email_desc`, `status`)
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `name` VARCHAR(64) NOT NULL,
+    `email_desc` VARCHAR(255) NOT NULL,
+    `json` TEXT NOT NULL,
+    `html` TEXT NOT NULL,
+    `status` TINYINT UNSIGNED NOT NULL DEFAULT '1',
+    `create_time` BIGINT UNSIGNED NOT NULL,
+    `update_time` BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_name_email_desc_status` (`name`, `email_desc`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS task_tab (

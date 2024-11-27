@@ -29,7 +29,8 @@ func NewEmailHandler(emailRepo repo.EmailRepo) EmailHandler {
 type CreateEmailRequest struct {
 	Name      *string `json:"name,omitempty"`
 	EmailDesc *string `json:"email_desc,omitempty"`
-	Blob      *string `json:"blob,omitempty"`
+	Json      *string `json:"json,omitempty"`
+	Html      *string `json:"html,omitempty"`
 }
 
 func (req *CreateEmailRequest) ToEmail() *entity.Email {
@@ -37,7 +38,8 @@ func (req *CreateEmailRequest) ToEmail() *entity.Email {
 	return &entity.Email{
 		Name:       req.Name,
 		EmailDesc:  req.EmailDesc,
-		Blob:       req.Blob,
+		Json:       req.Json,
+		Html:       req.Html,
 		Status:     goutil.Uint32(uint32(entity.EmailStatusNormal)),
 		CreateTime: goutil.Uint64(uint64(now.Unix())),
 		UpdateTime: goutil.Uint64(uint64(now.Unix())),
@@ -51,6 +53,8 @@ type CreateEmailResponse struct {
 var CreateEmailValidator = validator.MustForm(map[string]validator.Validator{
 	"name":       ResourceNameValidator(false),
 	"email_desc": ResourceDescValidator(false),
+	"json":       &validator.String{},
+	"html":       &validator.String{},
 })
 
 func (h *emailHandler) CreateEmail(ctx context.Context, req *CreateEmailRequest, res *CreateEmailResponse) error {

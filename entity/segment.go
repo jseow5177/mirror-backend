@@ -102,13 +102,13 @@ func (e *Query) ToString() (string, error) {
 }
 
 type Segment struct {
-	ID         *uint64 `json:"id,omitempty"`
-	Name       *string `json:"name,omitempty"`
-	Desc       *string `json:"desc,omitempty"`
-	Criteria   *Query  `json:"query,omitempty"`
-	Status     *uint32 `json:"status,omitempty"`
-	CreateTime *uint64 `json:"create_time,omitempty"`
-	UpdateTime *uint64 `json:"update_time,omitempty"`
+	ID         *uint64       `json:"id,omitempty"`
+	Name       *string       `json:"name,omitempty"`
+	Desc       *string       `json:"desc,omitempty"`
+	Criteria   *Query        `json:"query,omitempty"`
+	Status     SegmentStatus `json:"status,omitempty"`
+	CreateTime *uint64       `json:"create_time,omitempty"`
+	UpdateTime *uint64       `json:"update_time,omitempty"`
 }
 
 func (e *Segment) GetID() uint64 {
@@ -139,11 +139,11 @@ func (e *Segment) GetDesc() string {
 	return ""
 }
 
-func (e *Segment) GetStatus() uint32 {
-	if e != nil && e.Status != nil {
-		return *e.Status
+func (e *Segment) GetStatus() SegmentStatus {
+	if e != nil {
+		return e.Status
 	}
-	return uint32(SegmentStatusUnknown)
+	return SegmentStatusUnknown
 }
 
 func (e *Segment) GetCreateTime() uint64 {
