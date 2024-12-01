@@ -15,8 +15,15 @@ const (
 	PathCountSegments        = "/count_segments"
 	PathCreateEmail          = "/create_email"
 	PathGetEmails            = "/get_emails"
+	PathCreateCampaign       = "/create_campaign"
+	PathOnEmailOpen          = "/on_email_open"
+	PathOnEmailButtonClick   = "/on_email_button_click"
 )
 
 const (
 	LogLevelDebug = "DEBUG"
+)
+
+var (
+	EmptyJson = []byte("{}")
 )

@@ -58,6 +58,32 @@ CREATE TABLE IF NOT EXISTS task_tab (
     KEY `idx_tag_id_status_action` (`tag_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS campaign_tab (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `name` VARCHAR(64) NOT NULL,
+    `campaign_desc` VARCHAR(255) NOT NULL,
+    `segment_id` BIGINT UNSIGNED NOT NULL,
+    `segment_size` BIGINT UNSIGNED NOT NULL,
+    `progress` TINYINT UNSIGNED NOT NULL,
+    `status` TINYINT UNSIGNED NOT NULL,
+    `create_time` BIGINT UNSIGNED NOT NULL,
+    `update_time` BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS campaign_email_tab (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `campaign_id` BIGINT UNSIGNED NOT NULL,
+    `email_id` BIGINT UNSIGNED NOT NULL,
+    `subject` VARCHAR(255) NOT NULL,
+    `html` TEXT NOT NULL,
+    `ratio` TINYINT UNSIGNED NOT NULL,
+    `open_count` INT UNSIGNED NOT NULL,
+    `click_counts` TEXT NOT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_campaign_id` (`campaign_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE DATABASE IF NOT EXISTS mapping_id_db;
 
 USE mapping_id_db;

@@ -36,6 +36,7 @@ type server struct {
 	mappingIDRepo repo.MappingIDRepo
 	queryRepo     repo.QueryRepo
 	emailRepo     repo.EmailRepo
+	campaignRepo  repo.CampaignRepo
 
 	// api handlers
 	tagHandler       handler.TagHandler
@@ -43,6 +44,7 @@ type server struct {
 	taskHandler      handler.TaskHandler
 	mappingIDHandler handler.MappingIDHandler
 	emailHandler     handler.EmailHandler
+	campaignHandler  handler.CampaignHandler
 }
 
 func main() {
@@ -193,6 +195,21 @@ func (s *server) Start() error {
 		}
 	}()
 
+	// campaign repo
+	s.campaignRepo, err = repo.NewCampaignRepo(s.ctx, s.cfg.MetadataDB)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init campaign repo failed, err: %v", err)
+		return err
+	}
+	defer func() {
+		if err != nil && s.campaignRepo != nil {
+			if err := s.campaignRepo.Close(s.ctx); err != nil {
+				log.Ctx(s.ctx).Error().Msgf("close campaign repo failed, err: %v", err)
+				return
+			}
+		}
+	}()
+
 	// ===== init handlers ===== //
 
 	s.tagHandler = handler.NewTagHandler(s.tagRepo)
@@ -200,6 +217,7 @@ func (s *server) Start() error {
 	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
 	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
+	s.campaignHandler = handler.NewCampaignHandler(s.campaignRepo, s.emailRepo, s.segmentHandler)
 
 	// ===== start server ===== //
 
@@ -270,6 +288,13 @@ func (s *server) Stop() error {
 	if s.queryRepo != nil {
 		if err := s.queryRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close query repo failed, err: %v", err)
+			return err
+		}
+	}
+
+	if s.campaignRepo != nil {
+		if err := s.campaignRepo.Close(s.ctx); err != nil {
+			log.Ctx(s.ctx).Error().Msgf("close campaign repo failed, err: %v", err)
 			return err
 		}
 	}
@@ -463,6 +488,45 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.GetEmailsResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.emailHandler.GetEmails(ctx, req.(*handler.GetEmailsRequest), res.(*handler.GetEmailsResponse))
+			},
+		},
+	})
+
+	// create_campaign
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCreateCampaign,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CreateCampaignRequest),
+			Res: new(handler.CreateCampaignResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.campaignHandler.CreateCampaign(ctx, req.(*handler.CreateCampaignRequest), res.(*handler.CreateCampaignResponse))
+			},
+		},
+	})
+
+	// on_email_open
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathOnEmailOpen,
+		Method: http.MethodGet,
+		Handler: router.Handler{
+			Req: new(handler.OnEmailOpenRequest),
+			Res: new(handler.OnEmailOpenResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.campaignHandler.OnEmailOpen(ctx, req.(*handler.OnEmailOpenRequest), res.(*handler.OnEmailOpenResponse))
+			},
+		},
+	})
+
+	// on_email_button_click
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathOnEmailButtonClick,
+		Method: http.MethodGet,
+		Handler: router.Handler{
+			Req: new(handler.OnEmailButtonClickRequest),
+			Res: new(handler.OnEmailButtonClickResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.campaignHandler.OnEmailButtonClick(ctx, req.(*handler.OnEmailButtonClickRequest), res.(*handler.OnEmailButtonClickResponse))
 			},
 		},
 	})

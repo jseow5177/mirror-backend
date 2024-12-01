@@ -5,30 +5,58 @@ type CampaignStatus uint32
 const (
 	CampaignStatusUnknown CampaignStatus = iota
 	CampaignStatusPending
-	CampaignStatusNormal
 	CampaignStatusRunning
-	CampaignStatusFailed
-	CampaignStatusDone
-	CampaignStatusDeleted
 )
 
 type CampaignEmail struct {
-	EmailID *uint64  `json:"email_id,omitempty"`
-	Subject *string  `json:"subject,omitempty"`
-	Ratio   *float64 `json:"ratio,omitempty"`
+	ID          *uint64           `json:"id,omitempty"`
+	CampaignID  *uint64           `json:"campaign_id,omitempty"`
+	EmailID     *uint64           `json:"email_id,omitempty"`
+	Subject     *string           `json:"subject,omitempty"`
+	Html        *string           `json:"html,omitempty"`
+	Ratio       *uint64           `json:"ratio,omitempty"`
+	OpenCount   *uint64           `json:"open_count,omitempty"`
+	ClickCounts map[string]uint64 `json:"click_counts,omitempty"`
 }
 
-type CampaignMeta struct {
-	Emails []*CampaignEmail `json:"emails,omitempty"`
+func (e *CampaignEmail) GetID() uint64 {
+	if e != nil && e.ID != nil {
+		return *e.ID
+	}
+	return 0
+}
+
+func (e *CampaignEmail) GetCampaignID() uint64 {
+	if e != nil && e.CampaignID != nil {
+		return *e.CampaignID
+	}
+	return 0
+}
+
+func (e *CampaignEmail) GetOpenCount() uint64 {
+	if e != nil && e.OpenCount != nil {
+		return *e.OpenCount
+	}
+	return 0
 }
 
 type Campaign struct {
-	ID           *uint64        `json:"id,omitempty"`
-	Name         *string        `json:"name,omitempty"`
-	CampaignDesc *string        `json:"campaign_desc,omitempty"`
-	SegmentID    *uint64        `json:"segment_id,omitempty"`
-	Status       CampaignStatus `json:"status,omitempty"`
-	Meta         *CampaignMeta  `json:"meta,omitempty"`
-	CreateTime   *uint64        `json:"create_time,omitempty"`
-	UpdateTime   *uint64        `json:"update_time,omitempty"`
+	ID             *uint64          `json:"id,omitempty"`
+	Name           *string          `json:"name,omitempty"`
+	CampaignDesc   *string          `json:"campaign_desc,omitempty"`
+	SegmentID      *uint64          `json:"segment_id,omitempty"`
+	SegmentSize    *uint64          `json:"segment_size,omitempty"`
+	Progress       *uint64          `json:"progress,omitempty"`
+	Status         CampaignStatus   `json:"status,omitempty"`
+	CampaignEmails []*CampaignEmail `json:"campaign_emails,omitempty"`
+	Schedule       *uint64          `json:"schedule,omitempty"`
+	CreateTime     *uint64          `json:"create_time,omitempty"`
+	UpdateTime     *uint64          `json:"update_time,omitempty"`
+}
+
+func (e *Campaign) GetStatus() CampaignStatus {
+	if e != nil {
+		return e.Status
+	}
+	return CampaignStatusUnknown
 }

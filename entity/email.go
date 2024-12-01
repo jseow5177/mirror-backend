@@ -25,3 +25,10 @@ func (e *Email) GetStatus() EmailStatus {
 	}
 	return EmailStatusUnknown
 }
+
+func (e *Email) GetHtml() string {
+	if e != nil && e.Html != nil {
+		return *e.Html
+	}
+	return ""
+}

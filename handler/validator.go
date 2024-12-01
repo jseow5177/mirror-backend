@@ -25,6 +25,38 @@ func PaginationValidator() validator.Validator {
 	})
 }
 
+func CheckIDType(idType uint32) error {
+	if _, ok := entity.IDTypes[entity.IDType(idType)]; ok && idType != uint32(entity.IDTypeUnknown) {
+		return nil
+	}
+	return errors.New("invalid id type")
+}
+
+func UDValidator() validator.Validator {
+	return validator.MustForm(map[string]validator.Validator{
+		"id": &validator.String{},
+		"id_type": &validator.UInt32{
+			Optional:   true,
+			Validators: []validator.UInt32Func{CheckIDType},
+		},
+	})
+}
+
+func UdTagValValidator() validator.Validator {
+	return validator.MustForm(map[string]validator.Validator{
+		"ud": UDValidator(),
+		"tag_vals": &validator.Slice{
+			MinLen: 1,
+			MaxLen: 50,
+			Validator: validator.MustForm(map[string]validator.Validator{
+				"tag_id":   &validator.UInt64{Optional: true},
+				"tag_name": ResourceNameValidator(true),
+				"tag_val":  &validator.String{Optional: true, MaxLen: 8192},
+			}),
+		},
+	})
+}
+
 func ResourceNameValidator(optional bool) validator.Validator {
 	return &validator.String{
 		Optional:  optional,

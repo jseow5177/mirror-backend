@@ -67,6 +67,7 @@ func (f *EmailFilter) GetEmailDesc() string {
 }
 
 type EmailRepo interface {
+	Get(_ context.Context, f *EmailFilter) (*entity.Email, error)
 	GetMany(ctx context.Context, f *EmailFilter) ([]*entity.Email, *entity.Pagination, error)
 	Create(ctx context.Context, email *entity.Email) (uint64, error)
 	Close(ctx context.Context) error
