@@ -18,9 +18,12 @@ const (
 	PathCreateCampaign       = "/create_campaign"
 	PathOnEmailOpen          = "/on_email_open"
 	PathOnEmailButtonClick   = "/on_email_button_click"
+	PathRunCampaigns         = "/run_campaigns"
+	PathOnEmailAction        = "/on_email_action"
 )
 
 const (
+	DefaultPort   = 9090
 	LogLevelDebug = "DEBUG"
 )
 

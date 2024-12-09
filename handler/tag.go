@@ -58,7 +58,7 @@ type GetTagsRequest struct {
 }
 
 type GetTagsResponse struct {
-	Tags       []*entity.Tag      `json:"tags,omitempty"`
+	Tags       []*entity.Tag      `json:"tags"`
 	Pagination *entity.Pagination `json:"pagination,omitempty"`
 }
 
@@ -71,6 +71,10 @@ var GetTagsValidator = validator.MustForm(map[string]validator.Validator{
 func (h *tagHandler) GetTags(ctx context.Context, req *GetTagsRequest, res *GetTagsResponse) error {
 	if err := GetTagsValidator.Validate(req); err != nil {
 		return errutil.ValidationError(err)
+	}
+
+	if req.Pagination == nil {
+		req.Pagination = new(entity.Pagination)
 	}
 
 	tags, pagination, err := h.tagRepo.GetMany(ctx, &repo.TagFilter{

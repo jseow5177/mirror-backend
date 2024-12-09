@@ -30,7 +30,8 @@ func (m *CampaignEmail) GetClickCounts() string {
 }
 
 type CampaignEmailFilter struct {
-	ID *uint64
+	ID         *uint64
+	CampaignID *uint64
 }
 
 func (m *CampaignEmail) TableName() string {
@@ -47,10 +48,23 @@ type Campaign struct {
 	CampaignDesc *string
 	SegmentID    *uint64
 	SegmentSize  *uint64
+	Schedule     *uint64
 	Progress     *uint64
 	Status       *uint32
 	CreateTime   *uint64
 	UpdateTime   *uint64
+}
+
+func (m *Campaign) GetStatus() uint32 {
+	if m != nil && m.Status != nil {
+		return *m.Status
+	}
+	return 0
+}
+
+type CampaignFilter struct {
+	Conditions []*Condition
+	Pagination *Pagination
 }
 
 func (m *Campaign) TableName() string {
@@ -66,8 +80,10 @@ func (m *Campaign) GetID() uint64 {
 
 type CampaignRepo interface {
 	Create(ctx context.Context, campaign *entity.Campaign) (uint64, error)
-	GetCampaignEmail(_ context.Context, f *CampaignEmailFilter) (*entity.CampaignEmail, error)
-	UpdateCampaignEmail(_ context.Context, f *CampaignEmailFilter, campaignEmail *entity.CampaignEmail) error
+	Update(ctx context.Context, f *CampaignFilter, campaign *entity.Campaign) error
+	GetMany(ctx context.Context, f *CampaignFilter) ([]*entity.Campaign, *entity.Pagination, error)
+	GetCampaignEmail(ctx context.Context, f *CampaignEmailFilter) (*entity.CampaignEmail, error)
+	UpdateCampaignEmail(ctx context.Context, f *CampaignEmailFilter, campaignEmail *entity.CampaignEmail) error
 	Close(ctx context.Context) error
 }
 
@@ -95,11 +111,35 @@ func (r *campaignRepo) GetCampaignEmail(_ context.Context, f *CampaignEmailFilte
 }
 
 func (r *campaignRepo) UpdateCampaignEmail(_ context.Context, f *CampaignEmailFilter, campaignEmail *entity.CampaignEmail) error {
-	campaignEmailModel, err := ToCampaignEmailModel(campaignEmail.GetCampaignID(), campaignEmail)
+	campaignEmailModel, err := ToCampaignEmailModel(campaignEmail)
 	if err != nil {
 		return err
 	}
 	return r.orm.Model(campaignEmailModel).Where(f).Updates(campaignEmailModel).Error
+}
+
+func (r *campaignRepo) GetManyCampaignEmails(_ context.Context, f *CampaignEmailFilter) ([]*entity.CampaignEmail, error) {
+	mCampaignEmails := make([]*CampaignEmail, 0)
+	if err := r.orm.Where(f).Find(&mCampaignEmails).Error; err != nil {
+		return nil, err
+	}
+
+	campaignEmails := make([]*entity.CampaignEmail, len(mCampaignEmails))
+	for i, mCampaignEmail := range mCampaignEmails {
+		campaignEmail, err := ToCampaignEmail(mCampaignEmail)
+		if err != nil {
+			return nil, err
+		}
+		campaignEmails[i] = campaignEmail
+	}
+
+	return campaignEmails, nil
+}
+
+func (r *campaignRepo) Update(_ context.Context, f *CampaignFilter, campaign *entity.Campaign) error {
+	cond, args := ToSqlWithArgs(f.Conditions)
+	campaignModel := ToCampaignModel(campaign)
+	return r.orm.Model(campaignModel).Where(cond, args...).Updates(campaignModel).Error
 }
 
 func (r *campaignRepo) Create(_ context.Context, campaign *entity.Campaign) (uint64, error) {
@@ -112,7 +152,9 @@ func (r *campaignRepo) Create(_ context.Context, campaign *entity.Campaign) (uin
 		campaign.ID = campaignModel.ID
 
 		for _, campaignEmail := range campaign.CampaignEmails {
-			campaignEmailModel, err := ToCampaignEmailModel(campaignModel.GetID(), campaignEmail)
+			campaignEmail.CampaignID = campaignModel.ID
+
+			campaignEmailModel, err := ToCampaignEmailModel(campaignEmail)
 			if err != nil {
 				return err
 			}
@@ -130,6 +172,63 @@ func (r *campaignRepo) Create(_ context.Context, campaign *entity.Campaign) (uin
 	}
 
 	return campaignModel.GetID(), nil
+}
+
+func (r *campaignRepo) GetMany(ctx context.Context, f *CampaignFilter) ([]*entity.Campaign, *entity.Pagination, error) {
+	cond, args := ToSqlWithArgs(f.Conditions)
+
+	var count int64
+	if err := r.orm.Model(new(Campaign)).Where(cond, args...).Count(&count).Error; err != nil {
+		return nil, nil, err
+	}
+
+	var (
+		limit = f.Pagination.GetLimit()
+		page  = f.Pagination.GetPage()
+	)
+	if page == 0 {
+		page = 1
+	}
+
+	var (
+		offset     = (page - 1) * limit
+		mCampaigns = make([]*Campaign, 0)
+	)
+	query := r.orm.Where(cond, args...).Offset(int(offset))
+	if limit > 0 {
+		query = query.Limit(int(limit + 1))
+	}
+
+	if err := query.Find(&mCampaigns).Error; err != nil {
+		return nil, nil, err
+	}
+
+	var hasNext bool
+	if limit > 0 && len(mCampaigns) > int(limit) {
+		hasNext = true
+		mCampaigns = mCampaigns[:limit]
+	}
+
+	campaigns := make([]*entity.Campaign, len(mCampaigns))
+	for i, mCampaign := range mCampaigns {
+		campaign := ToCampaign(mCampaign)
+
+		campaignEmails, err := r.GetManyCampaignEmails(ctx, &CampaignEmailFilter{
+			CampaignID: campaign.ID,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		campaign.CampaignEmails = campaignEmails
+		campaigns[i] = campaign
+	}
+
+	return campaigns, &entity.Pagination{
+		Page:    goutil.Uint32(page),
+		Limit:   f.Pagination.Limit, // may be nil
+		HasNext: goutil.Bool(hasNext),
+		Total:   goutil.Int64(count),
+	}, nil
 }
 
 func (r *campaignRepo) Close(_ context.Context) error {
@@ -165,7 +264,7 @@ func ToCampaignEmail(campaignEmail *CampaignEmail) (*entity.CampaignEmail, error
 	}, nil
 }
 
-func ToCampaignEmailModel(campaignID uint64, campaignEmail *entity.CampaignEmail) (*CampaignEmail, error) {
+func ToCampaignEmailModel(campaignEmail *entity.CampaignEmail) (*CampaignEmail, error) {
 	clickCounts := config.EmptyJson
 	if campaignEmail.ClickCounts != nil {
 		var err error
@@ -176,7 +275,7 @@ func ToCampaignEmailModel(campaignID uint64, campaignEmail *entity.CampaignEmail
 	}
 
 	return &CampaignEmail{
-		CampaignID:  goutil.Uint64(campaignID),
+		CampaignID:  campaignEmail.CampaignID,
 		EmailID:     campaignEmail.EmailID,
 		Subject:     campaignEmail.Subject,
 		Html:        campaignEmail.Html,
@@ -186,6 +285,21 @@ func ToCampaignEmailModel(campaignID uint64, campaignEmail *entity.CampaignEmail
 	}, nil
 }
 
+func ToCampaign(campaign *Campaign) *entity.Campaign {
+	return &entity.Campaign{
+		ID:           campaign.ID,
+		Name:         campaign.Name,
+		CampaignDesc: campaign.CampaignDesc,
+		SegmentID:    campaign.SegmentID,
+		SegmentSize:  campaign.SegmentSize,
+		Schedule:     campaign.Schedule,
+		Progress:     campaign.Progress,
+		Status:       entity.CampaignStatus(campaign.GetStatus()),
+		CreateTime:   campaign.CreateTime,
+		UpdateTime:   campaign.UpdateTime,
+	}
+}
+
 func ToCampaignModel(campaign *entity.Campaign) *Campaign {
 	return &Campaign{
 		ID:           campaign.ID,
@@ -193,6 +307,7 @@ func ToCampaignModel(campaign *entity.Campaign) *Campaign {
 		CampaignDesc: campaign.CampaignDesc,
 		SegmentID:    campaign.SegmentID,
 		SegmentSize:  campaign.SegmentSize,
+		Schedule:     campaign.Schedule,
 		Progress:     campaign.Progress,
 		Status:       goutil.Uint32(uint32(campaign.Status)),
 		CreateTime:   campaign.CreateTime,

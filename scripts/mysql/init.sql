@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS campaign_tab (
     `segment_id` BIGINT UNSIGNED NOT NULL,
     `segment_size` BIGINT UNSIGNED NOT NULL,
     `progress` TINYINT UNSIGNED NOT NULL,
+    `schedule` BIGINT UNSIGNED NOT NULL,
     `status` TINYINT UNSIGNED NOT NULL,
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,

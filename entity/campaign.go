@@ -6,6 +6,7 @@ const (
 	CampaignStatusUnknown CampaignStatus = iota
 	CampaignStatusPending
 	CampaignStatusRunning
+	CampaignStatusFailed
 )
 
 type CampaignEmail struct {
@@ -13,7 +14,7 @@ type CampaignEmail struct {
 	CampaignID  *uint64           `json:"campaign_id,omitempty"`
 	EmailID     *uint64           `json:"email_id,omitempty"`
 	Subject     *string           `json:"subject,omitempty"`
-	Html        *string           `json:"html,omitempty"`
+	Html        *string           `json:"-"`
 	Ratio       *uint64           `json:"ratio,omitempty"`
 	OpenCount   *uint64           `json:"open_count,omitempty"`
 	ClickCounts map[string]uint64 `json:"click_counts,omitempty"`
@@ -40,6 +41,34 @@ func (e *CampaignEmail) GetOpenCount() uint64 {
 	return 0
 }
 
+func (e *CampaignEmail) GetClickCounts() map[string]uint64 {
+	if e != nil && e.ClickCounts != nil {
+		return e.ClickCounts
+	}
+	return nil
+}
+
+func (e *CampaignEmail) GetRatio() uint64 {
+	if e != nil && e.Ratio != nil {
+		return *e.Ratio
+	}
+	return 0
+}
+
+func (e *CampaignEmail) GetSubject() string {
+	if e != nil && e.Subject != nil {
+		return *e.Subject
+	}
+	return ""
+}
+
+func (e *CampaignEmail) GetHtml() string {
+	if e != nil && e.Html != nil {
+		return *e.Html
+	}
+	return ""
+}
+
 type Campaign struct {
 	ID             *uint64          `json:"id,omitempty"`
 	Name           *string          `json:"name,omitempty"`
@@ -52,6 +81,13 @@ type Campaign struct {
 	Schedule       *uint64          `json:"schedule,omitempty"`
 	CreateTime     *uint64          `json:"create_time,omitempty"`
 	UpdateTime     *uint64          `json:"update_time,omitempty"`
+}
+
+func (e *Campaign) GetID() uint64 {
+	if e != nil && e.ID != nil {
+		return *e.ID
+	}
+	return 0
 }
 
 func (e *Campaign) GetStatus() CampaignStatus {

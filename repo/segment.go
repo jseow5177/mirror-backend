@@ -137,7 +137,7 @@ func (r *segmentRepo) GetMany(_ context.Context, f *SegmentFilter) ([]*entity.Se
 	args = append(args, entity.SegmentStatusDeleted)
 
 	var count int64
-	if err := r.orm.Model(&Segment{}).Where(cond, args...).Count(&count).Error; err != nil {
+	if err := r.orm.Model(new(Segment)).Where(cond, args...).Count(&count).Error; err != nil {
 		return nil, nil, err
 	}
 

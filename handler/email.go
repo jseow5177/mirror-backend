@@ -54,7 +54,9 @@ var CreateEmailValidator = validator.MustForm(map[string]validator.Validator{
 	"name":       ResourceNameValidator(false),
 	"email_desc": ResourceDescValidator(false),
 	"json":       &validator.String{},
-	"html":       &validator.String{},
+	"html": &validator.String{
+		Validators: []validator.StringFunc{goutil.IsBase64EncodedHTML},
+	},
 })
 
 func (h *emailHandler) CreateEmail(ctx context.Context, req *CreateEmailRequest, res *CreateEmailResponse) error {
@@ -82,7 +84,7 @@ type GetEmailsRequest struct {
 }
 
 type GetEmailsResponse struct {
-	Emails     []*entity.Email    `json:"emails,omitempty"`
+	Emails     []*entity.Email    `json:"emails"`
 	Pagination *entity.Pagination `json:"pagination,omitempty"`
 }
 
@@ -95,6 +97,10 @@ var GetEmailsValidator = validator.MustForm(map[string]validator.Validator{
 func (h *emailHandler) GetEmails(ctx context.Context, req *GetEmailsRequest, res *GetEmailsResponse) error {
 	if err := GetEmailsValidator.Validate(req); err != nil {
 		return errutil.ValidationError(err)
+	}
+
+	if req.Pagination == nil {
+		req.Pagination = new(entity.Pagination)
 	}
 
 	emails, pagination, err := h.emailRepo.GetMany(ctx, &repo.EmailFilter{

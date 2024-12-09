@@ -173,7 +173,7 @@ func (r *tagRepo) GetMany(_ context.Context, f *TagFilter) ([]*entity.Tag, *enti
 	args = append(args, entity.TagStatusDeleted)
 
 	var count int64
-	if err := r.orm.Model(&Tag{}).Where(cond, args...).Count(&count).Error; err != nil {
+	if err := r.orm.Model(new(Tag)).Where(cond, args...).Count(&count).Error; err != nil {
 		return nil, nil, err
 	}
 

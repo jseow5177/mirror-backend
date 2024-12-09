@@ -10,6 +10,6 @@ func NewOptions() *Option {
 	return &Option{
 		LogLevel:   LogLevelDebug,
 		ConfigPath: "./bin/config.json",
-		Port:       9090,
+		Port:       DefaultPort,
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
+	"github.com/rs/zerolog/log"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -74,43 +75,50 @@ func (r *HttpRouter) RegisterHttpRoute(hr *HttpRoute) {
 }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	req := reflect.New(h.reqT).Interface()
 	res := reflect.New(h.respT).Interface()
 
 	if err := decoder.Decode(req, r.URL.Query()); err != nil {
+		log.Ctx(ctx).Error().Msgf("decode url query params error: %v", err)
 		httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(ErrCannotDecodeUrlParams))
 		return
 	}
 
-	if hasContentType(r, "application/json") {
-		if err := httputil.ReadJsonBody(r, req); err != nil {
-			httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(err))
-			return
-		}
-	} else if hasContentType(r, "multipart/form-data") {
-		fileMeta, err := getFileMeta(r)
-		if err != nil {
-			httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(err))
-			return
-		}
-
-		// set to FileMeta field in request struct
-		reqVal := reflect.ValueOf(req).Elem()
-		if fileMetaField, ok := reqVal.Type().FieldByName("FileMeta"); ok {
-			fv := reqVal.FieldByName(fileMetaField.Name)
-			if fv.CanSet() {
-				fv.Set(reflect.ValueOf(fileMeta))
-			} else {
-				httputil.ReturnServerResponse(w, nil, ErrCannotSetFileInfo)
+	if r.Body != http.NoBody {
+		if hasContentType(r, "application/json") {
+			if err := httputil.ReadJsonBody(r, req); err != nil {
+				log.Ctx(ctx).Error().Msgf("read json body error: %v", err)
+				httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(err))
 				return
 			}
+		} else if hasContentType(r, "multipart/form-data") {
+			fileMeta, err := getFileMeta(r)
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("get file meta error: %v", err)
+				httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(err))
+				return
+			}
+
+			// set to FileMeta field in request struct
+			reqVal := reflect.ValueOf(req).Elem()
+			if fileMetaField, ok := reqVal.Type().FieldByName("FileMeta"); ok {
+				fv := reqVal.FieldByName(fileMetaField.Name)
+				if fv.CanSet() {
+					fv.Set(reflect.ValueOf(fileMeta))
+				} else {
+					log.Ctx(ctx).Error().Msgf("file meta field can not be set: %v", fileMetaField.Name)
+					httputil.ReturnServerResponse(w, nil, ErrCannotSetFileInfo)
+					return
+				}
+			}
+		} else {
+			httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(ErrUnsupportedContentType))
+			return
 		}
-	} else {
-		httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(ErrUnsupportedContentType))
-		return
 	}
 
-	err := h.HandleFunc(r.Context(), req, res)
+	err := h.HandleFunc(ctx, req, res)
 	httputil.ReturnServerResponse(w, res, err)
 
 	return

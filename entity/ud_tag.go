@@ -12,8 +12,15 @@ var IDTypes = map[IDType]string{
 }
 
 type Ud struct {
-	ID     *uint64 `json:"id,omitempty"`
+	ID     *string `json:"id,omitempty"`
 	IDType IDType  `json:"id_type,omitempty"`
+}
+
+func (e *Ud) GetID() string {
+	if e != nil && e.ID != nil {
+		return *e.ID
+	}
+	return ""
 }
 
 type TagVal struct {

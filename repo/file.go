@@ -2,11 +2,8 @@ package repo
 
 import (
 	"cdp/config"
-	"cdp/pkg/goutil"
 	"context"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"io"
@@ -28,16 +25,16 @@ type fileRepo struct {
 
 func NewFileRepo(_ context.Context, s3Cfg config.S3) FileRepo {
 	// start s3 client
-	sess := session.Must(session.NewSession(&aws.Config{
-		Region:      goutil.String(s3Cfg.Region),
-		Credentials: credentials.NewStaticCredentials(s3Cfg.AccessKeyID, s3Cfg.SecretAccessKey, ""),
-	}))
+	//sess := session.Must(session.NewSession(&aws.Config{
+	//	Region:      goutil.String(s3Cfg.Region),
+	//	Credentials: credentials.NewStaticCredentials(s3Cfg.AccessKeyID, s3Cfg.SecretAccessKey, ""),
+	//}))
 
 	return &fileRepo{
-		uploader:          s3manager.NewUploader(sess),
-		downloader:        s3manager.NewDownloader(sess),
-		bucket:            s3Cfg.Bucket,
-		expirationSeconds: s3Cfg.ExpirationSeconds,
+		//uploader:          s3manager.NewUploader(sess),
+		//downloader:        s3manager.NewDownloader(sess),
+		//bucket:            s3Cfg.Bucket,
+		//expirationSeconds: s3Cfg.ExpirationSeconds,
 	}
 }
 

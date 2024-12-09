@@ -9,10 +9,21 @@ import (
 )
 
 type Config struct {
-	MetadataDB  MySQL      `json:"metadata_db"`
-	MappingIdDB MySQL      `json:"mapping_id_db"`
-	QueryDB     ClickHouse `json:"query_db"`
-	FileStore   S3         `json:"file_store"`
+	MetadataDB   MySQL      `json:"metadata_db"`
+	MappingIdDB  MySQL      `json:"mapping_id_db"`
+	QueryDB      ClickHouse `json:"query_db"`
+	FileStore    S3         `json:"file_store"`
+	SMTP         SMTP       `json:"smtp"`
+	ServerDomain string     `json:"server_domain"`
+	TestEmails   []string   `json:"test_emails"`
+}
+
+type SMTP struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	APIKey   string `json:"api_key"`
 }
 
 type ClickHouse struct {
@@ -50,14 +61,14 @@ func (mysql *MySQL) ToDSN() string {
 func NewConfig() *Config {
 	return &Config{
 		MetadataDB: MySQL{
-			Username: "admin",
+			Username: "",
 			Password: "",
 			Host:     "127.0.0.1",
 			Port:     3306,
 			Database: "metadata_db",
 		},
 		MappingIdDB: MySQL{
-			Username: "admin",
+			Username: "",
 			Password: "",
 			Host:     "127.0.0.1",
 			Port:     3306,
@@ -79,6 +90,15 @@ func NewConfig() *Config {
 			SecretAccessKey:   "",
 			ExpirationSeconds: 7_776_000, // 3 months
 		},
+		SMTP: SMTP{
+			Host:     "127.0.0.1",
+			Port:     25,
+			Username: "",
+			Password: "",
+			APIKey:   "",
+		},
+		ServerDomain: fmt.Sprintf("http://localhost:%d", DefaultPort),
+		TestEmails:   []string{},
 	}
 }
 

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"cdp/config"
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
@@ -15,19 +16,22 @@ import (
 type SegmentHandler interface {
 	CreateSegment(ctx context.Context, req *CreateSegmentRequest, res *CreateSegmentResponse) error
 	CountUd(ctx context.Context, req *CountUdRequest, res *CountUdResponse) error
+	GetUds(ctx context.Context, req *GetUdsRequest, res *GetUdsResponse) error
 	GetSegments(ctx context.Context, req *GetSegmentsRequest, res *GetSegmentsResponse) error
 	PreviewUd(ctx context.Context, req *PreviewUdRequest, res *PreviewUdResponse) error
 	CountSegments(ctx context.Context, req *CountSegmentsRequest, res *CountSegmentsResponse) error
 }
 
 type segmentHandler struct {
+	cfg         *config.Config
 	segmentRepo repo.SegmentRepo
 	tagRepo     repo.TagRepo
 	queryRepo   repo.QueryRepo
 }
 
-func NewSegmentHandler(tagRepo repo.TagRepo, segmentRepo repo.SegmentRepo, queryRepo repo.QueryRepo) SegmentHandler {
+func NewSegmentHandler(cfg *config.Config, tagRepo repo.TagRepo, segmentRepo repo.SegmentRepo, queryRepo repo.QueryRepo) SegmentHandler {
 	return &segmentHandler{
+		cfg:         cfg,
 		tagRepo:     tagRepo,
 		segmentRepo: segmentRepo,
 		queryRepo:   queryRepo,
@@ -64,7 +68,7 @@ type GetSegmentsRequest struct {
 }
 
 type GetSegmentsResponse struct {
-	Segments   []*entity.Segment  `json:"segments,omitempty"`
+	Segments   []*entity.Segment  `json:"segments"`
 	Pagination *entity.Pagination `json:"pagination,omitempty"`
 }
 
@@ -77,6 +81,10 @@ var GetSegmentsValidator = validator.MustForm(map[string]validator.Validator{
 func (h *segmentHandler) GetSegments(ctx context.Context, req *GetSegmentsRequest, res *GetSegmentsResponse) error {
 	if err := GetSegmentsValidator.Validate(req); err != nil {
 		return errutil.ValidationError(err)
+	}
+
+	if req.Pagination == nil {
+		req.Pagination = new(entity.Pagination)
 	}
 
 	segments, pagination, err := h.segmentRepo.GetMany(ctx, &repo.SegmentFilter{
@@ -166,6 +174,53 @@ func (h *segmentHandler) CreateSegment(ctx context.Context, req *CreateSegmentRe
 	return nil
 }
 
+type GetUdsRequest struct {
+	SegmentID *uint64 `json:"segment_id,omitempty"`
+}
+
+func (req *GetUdsRequest) GetSegmentID() uint64 {
+	if req != nil && req.SegmentID != nil {
+		return *req.SegmentID
+	}
+	return 0
+}
+
+type GetUdsResponse struct {
+	Uds []*entity.Ud `json:"uds"`
+}
+
+var GetUdsValidator = validator.MustForm(map[string]validator.Validator{
+	"segment_id": &validator.UInt64{
+		Optional: false,
+	},
+})
+
+func (h *segmentHandler) GetUds(ctx context.Context, req *GetUdsRequest, res *GetUdsResponse) error {
+	if err := GetUdsValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	_, err := h.segmentRepo.Get(ctx, &repo.SegmentFilter{
+		ID: req.SegmentID,
+	})
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get segment failed: %v", err)
+		return err
+	}
+
+	uds := make([]*entity.Ud, 0)
+	for _, email := range h.cfg.TestEmails {
+		uds = append(uds, &entity.Ud{
+			ID:     goutil.String(email),
+			IDType: entity.IDTypeEmail,
+		})
+	}
+
+	res.Uds = uds
+
+	return nil
+}
+
 type CountUdRequest struct {
 	SegmentID *uint64 `json:"segment_id,omitempty"`
 }
@@ -192,7 +247,7 @@ func (h *segmentHandler) CountUd(ctx context.Context, req *CountUdRequest, res *
 		return errutil.ValidationError(err)
 	}
 
-	segment, err := h.segmentRepo.Get(ctx, &repo.SegmentFilter{
+	_, err := h.segmentRepo.Get(ctx, &repo.SegmentFilter{
 		ID: req.SegmentID,
 	})
 	if err != nil {
@@ -200,13 +255,13 @@ func (h *segmentHandler) CountUd(ctx context.Context, req *CountUdRequest, res *
 		return err
 	}
 
-	count, err := h.queryRepo.Count(ctx, segment.Criteria)
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get count failed: %v", err)
-		return err
-	}
+	//count, err := h.queryRepo.Count(ctx, segment.Criteria)
+	//if err != nil {
+	//	log.Ctx(ctx).Error().Msgf("get count failed: %v", err)
+	//	return err
+	//}
 
-	res.Count = goutil.Uint64(count)
+	res.Count = goutil.Uint64(0)
 
 	return nil
 }

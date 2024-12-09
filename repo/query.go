@@ -4,12 +4,9 @@ import (
 	"cdp/config"
 	"cdp/entity"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"strings"
-	"time"
 )
 
 const insertTmpl = "(%v, %v, '%v', %v)" // tag_id, mapping_id, ud_id, tag_value
@@ -28,32 +25,32 @@ type queryRepo struct {
 }
 
 func NewQueryRepo(ctx context.Context, ckCfg config.ClickHouse, tagRepo TagRepo) (QueryRepo, error) {
-	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr:  ckCfg.Addr,
-		Debug: ckCfg.Debug,
-		Auth: clickhouse.Auth{
-			Database: ckCfg.Database,
-			Username: ckCfg.Username,
-			Password: ckCfg.Password,
-		},
-		TLS:             &tls.Config{},
-		DialTimeout:     time.Duration(ckCfg.DialTimeoutSeconds) * time.Second,
-		ConnMaxLifetime: time.Duration(ckCfg.ConnMaxLifetimeSeconds) * time.Second,
-		MaxIdleConns:    ckCfg.MaxIdleConns,
-		MaxOpenConns:    ckCfg.MaxOpenConns,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	if err := conn.Ping(ctx); err != nil {
-		return nil, err
-	}
+	//conn, err := clickhouse.Open(&clickhouse.Options{
+	//	Addr:  ckCfg.Addr,
+	//	Debug: ckCfg.Debug,
+	//	Auth: clickhouse.Auth{
+	//		Database: ckCfg.Database,
+	//		Username: ckCfg.Username,
+	//		Password: ckCfg.Password,
+	//	},
+	//	TLS:             &tls.Config{},
+	//	DialTimeout:     time.Duration(ckCfg.DialTimeoutSeconds) * time.Second,
+	//	ConnMaxLifetime: time.Duration(ckCfg.ConnMaxLifetimeSeconds) * time.Second,
+	//	MaxIdleConns:    ckCfg.MaxIdleConns,
+	//	MaxOpenConns:    ckCfg.MaxOpenConns,
+	//})
+	//if err != nil {
+	//	return nil, err
+	//}
+	//
+	//if err := conn.Ping(ctx); err != nil {
+	//	return nil, err
+	//}
 
 	return &queryRepo{
-		database: ckCfg.Database,
-		conn:     conn,
-		tagRepo:  tagRepo,
+		//database: ckCfg.Database,
+		//conn:     conn,
+		//tagRepo:  tagRepo,
 	}, nil
 }
 
@@ -194,5 +191,5 @@ func (r *queryRepo) constructSQL(ctx context.Context, query *entity.Query) (stri
 }
 
 func (r *queryRepo) Close(_ context.Context) error {
-	return r.conn.Close()
+	return nil
 }

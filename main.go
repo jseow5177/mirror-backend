@@ -2,6 +2,7 @@ package main
 
 import (
 	"cdp/config"
+	"cdp/dep"
 	"cdp/handler"
 	"cdp/middleware"
 	"cdp/pkg/router"
@@ -29,6 +30,7 @@ type server struct {
 	opt *config.Option
 	cfg *config.Config
 
+	// repos
 	tagRepo       repo.TagRepo
 	segmentRepo   repo.SegmentRepo
 	fileRepo      repo.FileRepo
@@ -37,6 +39,9 @@ type server struct {
 	queryRepo     repo.QueryRepo
 	emailRepo     repo.EmailRepo
 	campaignRepo  repo.CampaignRepo
+
+	// services
+	emailService dep.EmailService
 
 	// api handlers
 	tagHandler       handler.TagHandler
@@ -210,14 +215,30 @@ func (s *server) Start() error {
 		}
 	}()
 
+	// ===== init deps ===== //
+
+	s.emailService, err = dep.NewEmailService(s.ctx, s.cfg)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init email service failed, err: %v", err)
+		return err
+	}
+	defer func() {
+		if err != nil && s.emailService != nil {
+			if err := s.emailService.Close(s.ctx); err != nil {
+				log.Ctx(s.ctx).Error().Msgf("close email service failed, err: %v", err)
+				return
+			}
+		}
+	}()
+
 	// ===== init handlers ===== //
 
 	s.tagHandler = handler.NewTagHandler(s.tagRepo)
-	s.segmentHandler = handler.NewSegmentHandler(s.tagRepo, s.segmentRepo, s.queryRepo)
+	s.segmentHandler = handler.NewSegmentHandler(s.cfg, s.tagRepo, s.segmentRepo, s.queryRepo)
 	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
 	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
-	s.campaignHandler = handler.NewCampaignHandler(s.campaignRepo, s.emailRepo, s.segmentHandler)
+	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailRepo, s.emailService, s.segmentHandler)
 
 	// ===== start server ===== //
 
@@ -295,6 +316,13 @@ func (s *server) Stop() error {
 	if s.campaignRepo != nil {
 		if err := s.campaignRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close campaign repo failed, err: %v", err)
+			return err
+		}
+	}
+
+	if s.emailService != nil {
+		if err := s.emailService.Close(s.ctx); err != nil {
+			log.Ctx(s.ctx).Error().Msgf("close email service failed, err: %v", err)
 			return err
 		}
 	}
@@ -527,6 +555,32 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.OnEmailButtonClickResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.campaignHandler.OnEmailButtonClick(ctx, req.(*handler.OnEmailButtonClickRequest), res.(*handler.OnEmailButtonClickResponse))
+			},
+		},
+	})
+
+	// run_campaigns
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathRunCampaigns,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.RunCampaignsRequest),
+			Res: new(handler.RunCampaignsResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.campaignHandler.RunCampaigns(ctx, req.(*handler.RunCampaignsRequest), res.(*handler.RunCampaignsResponse))
+			},
+		},
+	})
+
+	// on_email_action
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathOnEmailAction,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.OnEmailActionRequest),
+			Res: new(handler.OnEmailActionResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.campaignHandler.OnEmailAction(ctx, req.(*handler.OnEmailActionRequest), res.(*handler.OnEmailActionResponse))
 			},
 		},
 	})
