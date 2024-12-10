@@ -533,32 +533,6 @@ func (s *server) registerRoutes() http.Handler {
 		},
 	})
 
-	// on_email_open
-	r.RegisterHttpRoute(&router.HttpRoute{
-		Path:   config.PathOnEmailOpen,
-		Method: http.MethodGet,
-		Handler: router.Handler{
-			Req: new(handler.OnEmailOpenRequest),
-			Res: new(handler.OnEmailOpenResponse),
-			HandleFunc: func(ctx context.Context, req, res interface{}) error {
-				return s.campaignHandler.OnEmailOpen(ctx, req.(*handler.OnEmailOpenRequest), res.(*handler.OnEmailOpenResponse))
-			},
-		},
-	})
-
-	// on_email_button_click
-	r.RegisterHttpRoute(&router.HttpRoute{
-		Path:   config.PathOnEmailButtonClick,
-		Method: http.MethodGet,
-		Handler: router.Handler{
-			Req: new(handler.OnEmailButtonClickRequest),
-			Res: new(handler.OnEmailButtonClickResponse),
-			HandleFunc: func(ctx context.Context, req, res interface{}) error {
-				return s.campaignHandler.OnEmailButtonClick(ctx, req.(*handler.OnEmailButtonClickRequest), res.(*handler.OnEmailButtonClickResponse))
-			},
-		},
-	})
-
 	// run_campaigns
 	r.RegisterHttpRoute(&router.HttpRoute{
 		Path:   config.PathRunCampaigns,

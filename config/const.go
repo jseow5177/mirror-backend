@@ -16,8 +16,6 @@ const (
 	PathCreateEmail          = "/create_email"
 	PathGetEmails            = "/get_emails"
 	PathCreateCampaign       = "/create_campaign"
-	PathOnEmailOpen          = "/on_email_open"
-	PathOnEmailButtonClick   = "/on_email_button_click"
 	PathRunCampaigns         = "/run_campaigns"
 	PathOnEmailAction        = "/on_email_action"
 )

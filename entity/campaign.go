@@ -14,7 +14,6 @@ type CampaignEmail struct {
 	CampaignID  *uint64           `json:"campaign_id,omitempty"`
 	EmailID     *uint64           `json:"email_id,omitempty"`
 	Subject     *string           `json:"subject,omitempty"`
-	Html        *string           `json:"-"`
 	Ratio       *uint64           `json:"ratio,omitempty"`
 	OpenCount   *uint64           `json:"open_count,omitempty"`
 	ClickCounts map[string]uint64 `json:"click_counts,omitempty"`
@@ -58,13 +57,6 @@ func (e *CampaignEmail) GetRatio() uint64 {
 func (e *CampaignEmail) GetSubject() string {
 	if e != nil && e.Subject != nil {
 		return *e.Subject
-	}
-	return ""
-}
-
-func (e *CampaignEmail) GetHtml() string {
-	if e != nil && e.Html != nil {
-		return *e.Html
 	}
 	return ""
 }

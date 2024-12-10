@@ -16,7 +16,6 @@ type CampaignEmail struct {
 	CampaignID  *uint64
 	EmailID     *uint64
 	Subject     *string
-	Html        *string
 	Ratio       *uint64
 	OpenCount   *uint64
 	ClickCounts *string
@@ -257,7 +256,6 @@ func ToCampaignEmail(campaignEmail *CampaignEmail) (*entity.CampaignEmail, error
 		CampaignID:  campaignEmail.CampaignID,
 		EmailID:     campaignEmail.EmailID,
 		Subject:     campaignEmail.Subject,
-		Html:        campaignEmail.Html,
 		Ratio:       campaignEmail.Ratio,
 		OpenCount:   campaignEmail.OpenCount,
 		ClickCounts: clickCounts,
@@ -278,7 +276,6 @@ func ToCampaignEmailModel(campaignEmail *entity.CampaignEmail) (*CampaignEmail, 
 		CampaignID:  campaignEmail.CampaignID,
 		EmailID:     campaignEmail.EmailID,
 		Subject:     campaignEmail.Subject,
-		Html:        campaignEmail.Html,
 		Ratio:       campaignEmail.Ratio,
 		OpenCount:   campaignEmail.OpenCount,
 		ClickCounts: goutil.String(string(clickCounts)),

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"cdp/config"
 	"cdp/dep"
 	"cdp/entity"
@@ -10,23 +9,17 @@ import (
 	"cdp/pkg/validator"
 	"cdp/repo"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/dchest/uniuri"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/net/html"
 	"golang.org/x/sync/errgroup"
 	"math"
-	"strings"
 	"time"
 )
 
 type CampaignHandler interface {
 	CreateCampaign(ctx context.Context, req *CreateCampaignRequest, res *CreateCampaignResponse) error
 	RunCampaigns(ctx context.Context, req *RunCampaignsRequest, res *RunCampaignsResponse) error
-	OnEmailOpen(ctx context.Context, req *OnEmailOpenRequest, res *OnEmailOpenResponse) error
-	OnEmailButtonClick(ctx context.Context, req *OnEmailButtonClickRequest, res *OnEmailButtonClickResponse) error
 	OnEmailAction(_ context.Context, _ *OnEmailActionRequest, _ *OnEmailActionResponse) error
 }
 
@@ -107,6 +100,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 					<-ch
 				}()
 
+				// fetch segment users
 				res := new(GetUdsResponse)
 				if err = h.segmentHandler.GetUds(ctx, &GetUdsRequest{
 					SegmentID: campaign.SegmentID,
@@ -115,6 +109,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 					return err
 				}
 
+				// set campaign to Running
 				if err = h.campaignRepo.Update(ctx, f, &entity.Campaign{
 					Status: entity.CampaignStatusRunning,
 				}); err != nil {
@@ -122,6 +117,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 					return err
 				}
 
+				// group emails into buckets
 				var (
 					pos            int
 					campaignEmails = campaign.CampaignEmails
@@ -141,15 +137,9 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 					pos += count
 				}
 
+				// send out emails by buckets
 				for i, emailBucket := range emailBuckets {
 					campaignEmail := campaignEmails[i]
-
-					var decodedHtml []byte
-					decodedHtml, err = base64.StdEncoding.DecodeString(campaignEmail.GetHtml())
-					if err != nil {
-						log.Ctx(ctx).Error().Msgf("decode email html failed: %v, campaign_email_id: %v", err, campaignEmail.GetID())
-						return err
-					}
 
 					to := make([]dep.Receiver, 0)
 					for _, email := range emailBucket {
@@ -165,7 +155,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 						},
 						To:          to,
 						Subject:     campaignEmail.GetSubject(),
-						HtmlContent: string(decodedHtml),
+						HtmlContent: "", // TODO: GET HTML CONTENT
 					}
 
 					if err = h.emailService.SendEmail(ctx, sendSmtpEmail); err != nil {
@@ -264,7 +254,6 @@ func (h *campaignHandler) CreateCampaign(ctx context.Context, req *CreateCampaig
 		campaignEmails = append(campaignEmails, &entity.CampaignEmail{
 			EmailID:     email.EmailID,
 			Subject:     email.Subject,
-			Html:        goutil.String(""),
 			Ratio:       email.Ratio,
 			OpenCount:   goutil.Uint64(uint64(0)),
 			ClickCounts: make(map[string]uint64),
@@ -294,197 +283,9 @@ func (h *campaignHandler) CreateCampaign(ctx context.Context, req *CreateCampaig
 		return err
 	}
 
-	for i, emailHtml := range emailHtmls {
-		campaignEmailID := campaignEmails[i].GetID()
-
-		decodedHtml, err := base64.StdEncoding.DecodeString(emailHtml)
-		if err != nil {
-			log.Ctx(ctx).Error().Msgf("decode email html failed: %v, campaign_email_id: %v", err, campaignEmailID)
-			return err
-		}
-
-		doc, err := html.Parse(strings.NewReader(string(decodedHtml)))
-		if err != nil {
-			log.Ctx(ctx).Error().Msgf("parse email html failed: %v, campaign_email_id: %v", err, campaignEmailID)
-			return err
-		}
-
-		h.addEmailOpenTracker(doc, campaignEmailID)
-		buttonIDs := h.addButtonClickTracker(doc, campaignEmailID)
-
-		var b bytes.Buffer
-		if err := html.Render(&b, doc); err != nil {
-			log.Ctx(ctx).Error().Msgf("render email html failed: %v, campaign_email_id: %v", err, campaignEmailID)
-			return err
-		}
-
-		f := &repo.CampaignEmailFilter{
-			ID: goutil.Uint64(campaignEmailID),
-		}
-
-		clickCounts := make(map[string]uint64)
-		for _, buttonID := range buttonIDs {
-			clickCounts[buttonID] = 0
-		}
-		encodedHtml := base64.StdEncoding.EncodeToString(b.Bytes())
-
-		campaignEmails[i].ClickCounts = clickCounts
-		campaignEmails[i].Html = goutil.String(encodedHtml)
-
-		if err := h.campaignRepo.UpdateCampaignEmail(ctx, f, campaignEmails[i]); err != nil {
-			log.Ctx(ctx).Error().Msgf("update campaign email html err: %v, campaign_email_id: %v", err, campaignEmailID)
-			return err
-		}
-	}
-
 	res.Campaign = campaign
 
 	return nil
-}
-
-type OnEmailOpenRequest struct {
-	CampaignEmailID *uint64 `schema:"campaign_email_id,omitempty"`
-}
-
-type OnEmailOpenResponse struct{}
-
-var OnEmailOpenValidator = validator.MustForm(map[string]validator.Validator{
-	"campaign_email_id": &validator.UInt64{},
-})
-
-func (h *campaignHandler) OnEmailOpen(ctx context.Context, req *OnEmailOpenRequest, _ *OnEmailOpenResponse) error {
-	if err := OnEmailOpenValidator.Validate(req); err != nil {
-		return err
-	}
-
-	campaignEmail, err := h.campaignRepo.GetCampaignEmail(ctx, &repo.CampaignEmailFilter{
-		ID: req.CampaignEmailID,
-	})
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get campaign email err: %v", err)
-		return err
-	}
-
-	f := &repo.CampaignEmailFilter{
-		ID: req.CampaignEmailID,
-	}
-	campaignEmail.OpenCount = goutil.Uint64(campaignEmail.GetOpenCount() + 1)
-
-	if err := h.campaignRepo.UpdateCampaignEmail(ctx, f, campaignEmail); err != nil {
-		log.Ctx(ctx).Error().Msgf("update campaign email err: %v, campaign_email_id: %v", err, req.CampaignEmailID)
-		return err
-	}
-
-	return nil
-}
-
-type OnEmailButtonClickRequest struct {
-	CampaignEmailID *uint64 `schema:"campaign_email_id,omitempty"`
-	ButtonID        *string `schema:"button_id,omitempty"`
-}
-
-func (r *OnEmailButtonClickRequest) GetButtonID() string {
-	if r != nil && r.ButtonID != nil {
-		return *r.ButtonID
-	}
-	return ""
-}
-
-type OnEmailButtonClickResponse struct{}
-
-var OnEmailButtonClickValidator = validator.MustForm(map[string]validator.Validator{
-	"campaign_email_id": &validator.UInt64{},
-	"button_id":         &validator.String{},
-})
-
-func (h *campaignHandler) OnEmailButtonClick(ctx context.Context, req *OnEmailButtonClickRequest, _ *OnEmailButtonClickResponse) error {
-	if err := OnEmailButtonClickValidator.Validate(req); err != nil {
-		return err
-	}
-
-	campaignEmail, err := h.campaignRepo.GetCampaignEmail(ctx, &repo.CampaignEmailFilter{
-		ID: req.CampaignEmailID,
-	})
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get campaign email err: %v", err)
-		return err
-	}
-
-	f := &repo.CampaignEmailFilter{
-		ID: req.CampaignEmailID,
-	}
-
-	clickCounts := campaignEmail.GetClickCounts()
-	clickCounts[req.GetButtonID()]++
-	campaignEmail.ClickCounts = clickCounts
-
-	if err := h.campaignRepo.UpdateCampaignEmail(ctx, f, campaignEmail); err != nil {
-		log.Ctx(ctx).Error().Msgf("update campaign email err: %v, campaign_email_id: %v", err, req.CampaignEmailID)
-		return err
-	}
-
-	return nil
-}
-
-func (h *campaignHandler) addEmailOpenTracker(doc *html.Node, campaignEmailID uint64) {
-	var body *html.Node
-
-	// find <body> tag
-	var findBody func(*html.Node)
-	findBody = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "body" {
-			body = n
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			findBody(c)
-		}
-	}
-	findBody(doc)
-
-	if body != nil {
-		// create <img> tag
-		body.AppendChild(&html.Node{
-			Type: html.ElementNode,
-			Data: "img",
-			Attr: []html.Attribute{
-				{Key: "src", Val: fmt.Sprintf("%s/api/v1/on_email_button_click?campaign_email_id=%d",
-					h.cfg.ServerDomain, campaignEmailID)},
-				{Key: "alt", Val: ""},
-				{Key: "src", Val: "display:none;"},
-			},
-		})
-	}
-}
-
-func (h *campaignHandler) addButtonClickTracker(doc *html.Node, campaignEmailID uint64) []string {
-	buttonIDs := make([]string, 0)
-
-	var add func(*html.Node)
-	add = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "a" {
-			buttonID := uniuri.New()
-
-			buttonIDs = append(buttonIDs, buttonID)
-
-			n.Attr = append(n.Attr, html.Attribute{
-				Key: "id",
-				Val: buttonID,
-			})
-
-			n.Attr = append(n.Attr, html.Attribute{
-				Key: "onclick",
-				Val: fmt.Sprintf("fetch('%s/api/v1/on_email_button_click?campaign_email_id=%d&button_id=%s')",
-					h.cfg.ServerDomain, campaignEmailID, buttonID),
-			})
-		}
-
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			add(c)
-		}
-	}
-	add(doc)
-
-	return buttonIDs
 }
 
 type OnEmailActionRequest struct{}
