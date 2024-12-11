@@ -580,6 +580,19 @@ func (s *server) registerRoutes() http.Handler {
 		},
 	})
 
+	// get_campaigns
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetCampaigns,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetCampaignsRequest),
+			Res: new(handler.GetCampaignsResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.campaignHandler.GetCampaigns(ctx, req.(*handler.GetCampaignsRequest), res.(*handler.GetCampaignsResponse))
+			},
+		},
+	})
+
 	return r
 }
 

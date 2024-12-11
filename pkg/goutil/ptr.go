@@ -66,3 +66,15 @@ func MustHaveOne(args ...interface{}) bool {
 	}
 	return noneNil == 1
 }
+
+func IsNil(i interface{}) bool {
+	if i == nil {
+		return true
+	}
+	switch reflect.TypeOf(i).Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Array, reflect.Chan, reflect.Slice:
+		return reflect.ValueOf(i).IsNil()
+	default:
+		return false
+	}
+}

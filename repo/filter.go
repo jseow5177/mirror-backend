@@ -1,6 +1,9 @@
 package repo
 
-import "fmt"
+import (
+	"cdp/pkg/goutil"
+	"fmt"
+)
 
 type LogicalOp string
 
@@ -31,6 +34,10 @@ type Condition struct {
 
 func ToSqlWithArgs(conditions []*Condition) (sql string, args []interface{}) {
 	for i, condition := range conditions {
+		if goutil.IsNil(condition.Value) {
+			continue
+		}
+
 		switch condition.Op {
 		case OpEq:
 			sql += fmt.Sprintf("%s = ?", condition.Field)

@@ -21,7 +21,8 @@ import (
 type CampaignHandler interface {
 	CreateCampaign(ctx context.Context, req *CreateCampaignRequest, res *CreateCampaignResponse) error
 	RunCampaigns(ctx context.Context, req *RunCampaignsRequest, res *RunCampaignsResponse) error
-	OnEmailAction(_ context.Context, _ *OnEmailActionRequest, _ *OnEmailActionResponse) error
+	OnEmailAction(ctx context.Context, req *OnEmailActionRequest, res *OnEmailActionResponse) error
+	GetCampaigns(ctx context.Context, req *GetCampaignsRequest, res *GetCampaignsResponse) error
 }
 
 type campaignHandler struct {
@@ -49,6 +50,62 @@ func NewCampaignHandler(
 		segmentHandler,
 		campaignLogRepo,
 	}
+}
+
+type GetCampaignsRequest struct {
+	Name         *string            `json:"name,omitempty"`
+	CampaignDesc *string            `json:"campaign_desc,omitempty"`
+	Pagination   *entity.Pagination `json:"pagination,omitempty"`
+}
+
+type GetCampaignsResponse struct {
+	Campaigns  []*entity.Campaign `json:"campaigns"`
+	Pagination *entity.Pagination `json:"pagination,omitempty"`
+}
+
+var GetCampaignsValidator = validator.MustForm(map[string]validator.Validator{
+	"name":          ResourceNameValidator(true),
+	"campaign_desc": ResourceDescValidator(true),
+	"pagination":    PaginationValidator(),
+})
+
+func (h *campaignHandler) GetCampaigns(ctx context.Context, req *GetCampaignsRequest, res *GetCampaignsResponse) error {
+	if err := GetCampaignsValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	if req.Pagination == nil {
+		req.Pagination = new(entity.Pagination)
+	}
+
+	campaigns, pagination, err := h.campaignRepo.GetMany(ctx, &repo.CampaignFilter{
+		Conditions: []*repo.Condition{
+			{
+				Field:         "name",
+				Op:            repo.OpLike,
+				Value:         req.Name,
+				NextLogicalOp: repo.Or,
+			},
+			{
+				Field: "campaign_desc",
+				Op:    repo.OpLike,
+				Value: req.CampaignDesc,
+			},
+		},
+		Pagination: &repo.Pagination{
+			Page:  req.Pagination.Page,
+			Limit: req.Pagination.Limit,
+		},
+	})
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get campaigns failed: %v", err)
+		return err
+	}
+
+	res.Campaigns = campaigns
+	res.Pagination = pagination
+
+	return nil
 }
 
 type RunCampaignsRequest struct{}
@@ -206,6 +263,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 							campaignEmail.GetID(), start, end)
 					} else {
 						if err = h.campaignRepo.Update(ctx, f, &entity.Campaign{
+							Status:   entity.CampaignStatusRunning, // TODO: FIX UPDATE
 							Progress: goutil.Uint64(uint64(progress)),
 						}); err != nil {
 							log.Ctx(ctx).Error().Msgf("update campaign progress err: %v, campaign_id: %v, progress: %v", err,
