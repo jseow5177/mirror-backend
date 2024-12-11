@@ -7,10 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	brevo "github.com/getbrevo/brevo-go/lib"
 	"io"
 	"net/http"
 	"time"
+
+	brevo "github.com/getbrevo/brevo-go/lib"
 )
 
 const (

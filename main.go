@@ -31,14 +31,15 @@ type server struct {
 	cfg *config.Config
 
 	// repos
-	tagRepo       repo.TagRepo
-	segmentRepo   repo.SegmentRepo
-	fileRepo      repo.FileRepo
-	taskRepo      repo.TaskRepo
-	mappingIDRepo repo.MappingIDRepo
-	queryRepo     repo.QueryRepo
-	emailRepo     repo.EmailRepo
-	campaignRepo  repo.CampaignRepo
+	tagRepo         repo.TagRepo
+	segmentRepo     repo.SegmentRepo
+	fileRepo        repo.FileRepo
+	taskRepo        repo.TaskRepo
+	mappingIDRepo   repo.MappingIDRepo
+	queryRepo       repo.QueryRepo
+	emailRepo       repo.EmailRepo
+	campaignRepo    repo.CampaignRepo
+	campaignLogRepo repo.CampaignLogRepo
 
 	// services
 	emailService dep.EmailService
@@ -215,6 +216,19 @@ func (s *server) Start() error {
 		}
 	}()
 
+	// campaign log repo
+	s.campaignLogRepo, err = repo.NewCampaignLogRepo(s.ctx, s.cfg.MetadataDB)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init campaign log repo failed, err: %v", err)
+		return err
+	}
+	defer func() {
+		if err != nil && s.campaignLogRepo != nil {
+			log.Ctx(s.ctx).Error().Msgf("close campaign log repo failed, err: %v", err)
+			return
+		}
+	}()
+
 	// ===== init deps ===== //
 
 	s.emailService, err = dep.NewEmailService(s.ctx, s.cfg)
@@ -238,7 +252,7 @@ func (s *server) Start() error {
 	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
 	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
-	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailRepo, s.emailService, s.segmentHandler)
+	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailRepo, s.emailService, s.segmentHandler, s.campaignLogRepo)
 
 	// ===== start server ===== //
 
@@ -316,6 +330,13 @@ func (s *server) Stop() error {
 	if s.campaignRepo != nil {
 		if err := s.campaignRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close campaign repo failed, err: %v", err)
+			return err
+		}
+	}
+
+	if s.campaignLogRepo != nil {
+		if err := s.campaignLogRepo.Close(s.ctx); err != nil {
+			log.Ctx(s.ctx).Error().Msgf("close campaign log repo failed, err: %v", err)
 			return err
 		}
 	}

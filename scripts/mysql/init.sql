@@ -77,12 +77,19 @@ CREATE TABLE IF NOT EXISTS campaign_email_tab (
     `campaign_id` BIGINT UNSIGNED NOT NULL,
     `email_id` BIGINT UNSIGNED NOT NULL,
     `subject` VARCHAR(255) NOT NULL,
-    `html` TEXT NOT NULL,
     `ratio` TINYINT UNSIGNED NOT NULL,
-    `open_count` INT UNSIGNED NOT NULL,
-    `click_counts` TEXT NOT NULL,
     PRIMARY KEY (`id`),
     KEY `idx_campaign_id` (`campaign_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS campaign_log_tab (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `campaign_email_id` BIGINT UNSIGNED NOT NULL,
+    `event` TINYINT UNSIGNED NOT NULL,
+    `log_extra` TEXT NOT NULL,
+    `create_time` BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_campaign_id` (`campaign_email_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE DATABASE IF NOT EXISTS mapping_id_db;

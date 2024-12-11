@@ -5,27 +5,17 @@ import (
 	"cdp/entity"
 	"cdp/pkg/goutil"
 	"context"
-	"encoding/json"
 	"errors"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
 type CampaignEmail struct {
-	ID          *uint64
-	CampaignID  *uint64
-	EmailID     *uint64
-	Subject     *string
-	Ratio       *uint64
-	OpenCount   *uint64
-	ClickCounts *string
-}
-
-func (m *CampaignEmail) GetClickCounts() string {
-	if m != nil && m.ClickCounts != nil {
-		return *m.ClickCounts
-	}
-	return ""
+	ID         *uint64
+	CampaignID *uint64
+	EmailID    *uint64
+	Subject    *string
+	Ratio      *uint64
 }
 
 type CampaignEmailFilter struct {
@@ -106,15 +96,12 @@ func (r *campaignRepo) GetCampaignEmail(_ context.Context, f *CampaignEmailFilte
 		}
 	}
 
-	return ToCampaignEmail(campaignEmail)
+	return ToCampaignEmail(campaignEmail), nil
 }
 
 func (r *campaignRepo) UpdateCampaignEmail(_ context.Context, f *CampaignEmailFilter, campaignEmail *entity.CampaignEmail) error {
-	campaignEmailModel, err := ToCampaignEmailModel(campaignEmail)
-	if err != nil {
-		return err
-	}
-	return r.orm.Model(campaignEmailModel).Where(f).Updates(campaignEmailModel).Error
+	campaignEmailModel := ToCampaignEmailModel(campaignEmail)
+	return r.orm.Model(campaignEmailModel).Where(f).Updates(ToCampaignEmailModel(campaignEmail)).Error
 }
 
 func (r *campaignRepo) GetManyCampaignEmails(_ context.Context, f *CampaignEmailFilter) ([]*entity.CampaignEmail, error) {
@@ -125,11 +112,7 @@ func (r *campaignRepo) GetManyCampaignEmails(_ context.Context, f *CampaignEmail
 
 	campaignEmails := make([]*entity.CampaignEmail, len(mCampaignEmails))
 	for i, mCampaignEmail := range mCampaignEmails {
-		campaignEmail, err := ToCampaignEmail(mCampaignEmail)
-		if err != nil {
-			return nil, err
-		}
-		campaignEmails[i] = campaignEmail
+		campaignEmails[i] = ToCampaignEmail(mCampaignEmail)
 	}
 
 	return campaignEmails, nil
@@ -153,10 +136,7 @@ func (r *campaignRepo) Create(_ context.Context, campaign *entity.Campaign) (uin
 		for _, campaignEmail := range campaign.CampaignEmails {
 			campaignEmail.CampaignID = campaignModel.ID
 
-			campaignEmailModel, err := ToCampaignEmailModel(campaignEmail)
-			if err != nil {
-				return err
-			}
+			campaignEmailModel := ToCampaignEmailModel(campaignEmail)
 
 			if err := tx.Create(&campaignEmailModel).Error; err != nil {
 				return err
@@ -245,41 +225,24 @@ func (r *campaignRepo) Close(_ context.Context) error {
 	return nil
 }
 
-func ToCampaignEmail(campaignEmail *CampaignEmail) (*entity.CampaignEmail, error) {
-	clickCounts := make(map[string]uint64)
-	if err := json.Unmarshal([]byte(campaignEmail.GetClickCounts()), &clickCounts); err != nil {
-		return nil, err
-	}
+func ToCampaignEmail(campaignEmail *CampaignEmail) *entity.CampaignEmail {
 
 	return &entity.CampaignEmail{
-		ID:          campaignEmail.ID,
-		CampaignID:  campaignEmail.CampaignID,
-		EmailID:     campaignEmail.EmailID,
-		Subject:     campaignEmail.Subject,
-		Ratio:       campaignEmail.Ratio,
-		OpenCount:   campaignEmail.OpenCount,
-		ClickCounts: clickCounts,
-	}, nil
+		ID:         campaignEmail.ID,
+		CampaignID: campaignEmail.CampaignID,
+		EmailID:    campaignEmail.EmailID,
+		Subject:    campaignEmail.Subject,
+		Ratio:      campaignEmail.Ratio,
+	}
 }
 
-func ToCampaignEmailModel(campaignEmail *entity.CampaignEmail) (*CampaignEmail, error) {
-	clickCounts := config.EmptyJson
-	if campaignEmail.ClickCounts != nil {
-		var err error
-		clickCounts, err = json.Marshal(campaignEmail.ClickCounts)
-		if err != nil {
-			return nil, err
-		}
-	}
-
+func ToCampaignEmailModel(campaignEmail *entity.CampaignEmail) *CampaignEmail {
 	return &CampaignEmail{
-		CampaignID:  campaignEmail.CampaignID,
-		EmailID:     campaignEmail.EmailID,
-		Subject:     campaignEmail.Subject,
-		Ratio:       campaignEmail.Ratio,
-		OpenCount:   campaignEmail.OpenCount,
-		ClickCounts: goutil.String(string(clickCounts)),
-	}, nil
+		CampaignID: campaignEmail.CampaignID,
+		EmailID:    campaignEmail.EmailID,
+		Subject:    campaignEmail.Subject,
+		Ratio:      campaignEmail.Ratio,
+	}
 }
 
 func ToCampaign(campaign *Campaign) *entity.Campaign {
