@@ -5,7 +5,6 @@ import (
 	"cdp/entity"
 	"cdp/pkg/goutil"
 	"context"
-	"encoding/json"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -18,7 +17,9 @@ type CampaignLog struct {
 	ID              *uint64
 	CampaignEmailID *uint64
 	Event           *uint32
-	LogExtra        *string
+	Link            *string
+	Email           *string
+	EventTime       *uint64
 	CreateTime      *uint64
 }
 
@@ -28,6 +29,8 @@ func (m *CampaignLog) TableName() string {
 
 type CampaignLogRepo interface {
 	BatchCreate(ctx context.Context, campaignLogs []*entity.CampaignLog) error
+	CountTotalUniqueOpen(ctx context.Context, campaignEmailID uint64) (uint64, error)
+	CountClicksByLink(ctx context.Context, campaignEmailID uint64) (map[string]uint64, error)
 	Close(ctx context.Context) error
 }
 
@@ -46,14 +49,51 @@ func NewCampaignLogRepo(_ context.Context, mysqlCfg config.MySQL) (CampaignLogRe
 func (r *campaignLogRepo) BatchCreate(_ context.Context, campaignLogs []*entity.CampaignLog) error {
 	campaignLogModels := make([]*CampaignLog, 0, len(campaignLogs))
 	for _, campaignLog := range campaignLogs {
-		campaignLogModel, err := ToCampaignLogModel(campaignLog)
-		if err != nil {
-			return err
-		}
-		campaignLogModels = append(campaignLogModels, campaignLogModel)
+		campaignLogModels = append(campaignLogModels, ToCampaignLogModel(campaignLog))
 	}
 
 	return r.orm.Create(campaignLogModels).Error
+}
+
+func (r *campaignLogRepo) CountTotalUniqueOpen(_ context.Context, campaignEmailID uint64) (uint64, error) {
+	var count int64
+	if err := r.orm.
+		Model(new(CampaignLog)).
+		Where("campaign_email_id = ? AND event = ?", campaignEmailID, entity.EventUniqueOpened).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return uint64(count), nil
+}
+
+func (r *campaignLogRepo) CountClicksByLink(_ context.Context, campaignEmailID uint64) (map[string]uint64, error) {
+	rows, err := r.orm.Model(new(CampaignLog)).
+		Where("campaign_email_id = ? AND event = ?", campaignEmailID, entity.EventClick).
+		Select("link, COUNT(*) as count").
+		Group("link").
+		Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	linkCounts := make(map[string]uint64)
+
+	var (
+		link  string
+		count int64
+	)
+	for rows.Next() {
+		err := rows.Scan(&link, &count)
+		if err != nil {
+			return nil, err
+		}
+		linkCounts[link] = uint64(count)
+	}
+
+	return linkCounts, nil
 }
 
 func (r *campaignLogRepo) Close(_ context.Context) error {
@@ -71,16 +111,13 @@ func (r *campaignLogRepo) Close(_ context.Context) error {
 	return nil
 }
 
-func ToCampaignLogModel(campaignLog *entity.CampaignLog) (*CampaignLog, error) {
-	logExtra, err := json.Marshal(campaignLog.LogExtra)
-	if err != nil {
-		return nil, err
-	}
-
+func ToCampaignLogModel(campaignLog *entity.CampaignLog) *CampaignLog {
 	return &CampaignLog{
 		CampaignEmailID: campaignLog.CampaignEmailID,
 		Event:           goutil.Uint32(uint32(campaignLog.GetEvent())),
-		LogExtra:        goutil.String(string(logExtra)),
+		Link:            campaignLog.Link,
+		Email:           campaignLog.Email,
+		EventTime:       campaignLog.EventTime,
 		CreateTime:      campaignLog.CreateTime,
-	}, nil
+	}
 }

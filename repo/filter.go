@@ -34,7 +34,7 @@ type Condition struct {
 
 func ToSqlWithArgs(conditions []*Condition) (sql string, args []interface{}) {
 	for i, condition := range conditions {
-		if goutil.IsNil(condition.Value) {
+		if condition == nil || goutil.IsNil(condition.Value) {
 			continue
 		}
 

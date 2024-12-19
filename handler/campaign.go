@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"math"
@@ -23,15 +24,17 @@ type CampaignHandler interface {
 	RunCampaigns(ctx context.Context, req *RunCampaignsRequest, res *RunCampaignsResponse) error
 	OnEmailAction(ctx context.Context, req *OnEmailActionRequest, res *OnEmailActionResponse) error
 	GetCampaigns(ctx context.Context, req *GetCampaignsRequest, res *GetCampaignsResponse) error
+	GetCampaign(ctx context.Context, req *GetCampaignRequest, res *GetCampaignResponse) error
 }
 
 type campaignHandler struct {
-	cfg             *config.Config
-	campaignRepo    repo.CampaignRepo
-	emailRepo       repo.EmailRepo
-	emailService    dep.EmailService
-	segmentHandler  SegmentHandler
-	campaignLogRepo repo.CampaignLogRepo
+	cfg               *config.Config
+	campaignRepo      repo.CampaignRepo
+	emailRepo         repo.EmailRepo
+	emailService      dep.EmailService
+	segmentHandler    SegmentHandler
+	campaignLogRepo   repo.CampaignLogRepo
+	campaignEmailRepo repo.CampaignEmailRepo
 }
 
 func NewCampaignHandler(
@@ -40,6 +43,7 @@ func NewCampaignHandler(
 	emailRepo repo.EmailRepo,
 	emailService dep.EmailService,
 	segmentHandler SegmentHandler,
+	campaignEmailRepo repo.CampaignEmailRepo,
 	campaignLogRepo repo.CampaignLogRepo,
 ) CampaignHandler {
 	return &campaignHandler{
@@ -49,6 +53,7 @@ func NewCampaignHandler(
 		emailService,
 		segmentHandler,
 		campaignLogRepo,
+		campaignEmailRepo,
 	}
 }
 
@@ -112,7 +117,7 @@ type RunCampaignsRequest struct{}
 
 type RunCampaignsResponse struct{}
 
-func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsRequest, res *RunCampaignsResponse) error {
+func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsRequest, _ *RunCampaignsResponse) error {
 	ctx = context.WithoutCancel(ctx)
 
 	var (
@@ -144,12 +149,6 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 		g.Go(func() error {
 			var err error
 
-			f := &repo.CampaignFilter{
-				Conditions: []*repo.Condition{
-					{Field: "id", Op: repo.OpEq, Value: campaign.GetID()},
-				},
-			}
-
 			// release go routine
 			defer func() {
 				<-ch
@@ -158,7 +157,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 			// set campaign status
 			defer func() {
 				if err != nil {
-					if err = h.campaignRepo.Update(ctx, f, &entity.Campaign{
+					if err = h.campaignRepo.Update(ctx, campaign.GetID(), &entity.Campaign{
 						Status: entity.CampaignStatusFailed,
 					}); err != nil {
 						log.Ctx(ctx).Error().Msgf("set campaign to failed err: %v, campaign_id: %v", err, campaign.GetID())
@@ -176,7 +175,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 			}
 
 			// set campaign to Running, update the segment size
-			if err = h.campaignRepo.Update(ctx, f, &entity.Campaign{
+			if err = h.campaignRepo.Update(ctx, campaign.GetID(), &entity.Campaign{
 				SegmentSize: goutil.Uint64(uint64(len(getUdsRes.Uds))),
 				Status:      entity.CampaignStatusRunning,
 			}); err != nil {
@@ -184,17 +183,29 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 				return err
 			}
 
+			// fetch campaign emails
+			campaignEmails, err := h.campaignEmailRepo.GetMany(ctx, &repo.CampaignEmailFilter{
+				Conditions: []*repo.Condition{
+					{Field: "campaign_id", Op: repo.OpEq, Value: campaign.GetID()},
+				},
+			})
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("get campaign emails failed: %v", err)
+				return err
+			}
+
 			// group emails into buckets and fetch htmls
 			var (
-				pos            int
-				htmls          = make([]string, 0)
-				campaignEmails = campaign.CampaignEmails
-				emailBuckets   = make([][]string, 0)
+				pos          int
+				htmls        = make([]string, 0)
+				emailBuckets = make([][]string, 0)
 			)
 			for _, campaignEmail := range campaignEmails {
 				// group emails
-				count := int(math.Ceil(float64(len(getUdsRes.Uds)) * float64((campaignEmail.GetRatio())/100)))
+				count := int(math.Ceil(float64(len(getUdsRes.Uds)) * float64(campaignEmail.GetRatio()) / float64(100)))
 				end := int(math.Min(float64(len(getUdsRes.Uds)), float64(pos+count)))
+
+				fmt.Println(count, end)
 
 				emailBucket := make([]string, 0)
 				for _, ud := range getUdsRes.Uds[pos:end] {
@@ -223,6 +234,8 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 				}
 				htmls = append(htmls, string(decodedHtml))
 			}
+
+			fmt.Println(emailBuckets)
 
 			// send out emails by buckets
 			for i, emailBucket := range emailBuckets {
@@ -262,7 +275,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, req *RunCampaignsReq
 						log.Ctx(ctx).Error().Msgf("send email failed: %v, campaign_email_id: %v, batch_start: %d, batch_end: %d", err,
 							campaignEmail.GetID(), start, end)
 					} else {
-						if err = h.campaignRepo.Update(ctx, f, &entity.Campaign{
+						if err = h.campaignRepo.Update(ctx, campaign.GetID(), &entity.Campaign{
 							Status:   entity.CampaignStatusRunning, // TODO: FIX UPDATE
 							Progress: goutil.Uint64(uint64(progress)),
 						}); err != nil {
@@ -400,7 +413,6 @@ type OnEmailActionRequest struct {
 	Event   *string  `json:"event,omitempty"`
 	Link    *string  `json:"link,omitempty"`
 	TsEpoch *uint64  `json:"ts_epoch,omitempty"`
-	Date    *string  `json:"date,omitempty"`
 	Email   *string  `json:"email,omitempty"`
 	Tags    []string `json:"tags,omitempty"`
 }
@@ -435,19 +447,102 @@ func (h *campaignHandler) OnEmailAction(ctx context.Context, req *OnEmailActionR
 	campaignLog := &entity.CampaignLog{
 		CampaignEmailID: goutil.Uint64(campaignEmailID),
 		Event:           event,
-		LogExtra: entity.LogExtra{
-			Link:    req.Link,
-			Email:   req.Email,
-			Date:    req.Date,
-			TsEpoch: req.TsEpoch,
-		},
-		CreateTime: goutil.Uint64(uint64(time.Now().Unix())),
+		Link:            req.Link,
+		Email:           req.Email,
+		EventTime:       req.TsEpoch,
+		CreateTime:      goutil.Uint64(uint64(time.Now().Unix())),
 	}
 
 	if err := h.campaignLogRepo.BatchCreate(ctx, []*entity.CampaignLog{campaignLog}); err != nil {
 		log.Ctx(ctx).Error().Msgf("create campaign log failed: %v", err)
 		return err
 	}
+
+	return nil
+}
+
+type GetCampaignRequest struct {
+	CampaignID *uint64 `json:"campaign_id,omitempty"`
+}
+
+func (r *GetCampaignRequest) GetCampaignID() uint64 {
+	if r != nil && r.CampaignID != nil {
+		return *r.CampaignID
+	}
+	return 0
+}
+
+type GetCampaignResponse struct {
+	Campaign        *entity.Campaign       `json:"campaign,omitempty"`
+	CampaignResults *entity.CampaignResult `json:"campaign_results,omitempty"`
+}
+
+var GetCampaignValidator = validator.MustForm(map[string]validator.Validator{
+	"campaign_id": &validator.UInt64{},
+})
+
+func (h *campaignHandler) GetCampaign(ctx context.Context, req *GetCampaignRequest, res *GetCampaignResponse) error {
+	if err := GetCampaignValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	campaign, err := h.campaignRepo.Get(ctx, req.GetCampaignID())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get campaign err: %v", err)
+		return err
+	}
+
+	campaignEmails, err := h.campaignEmailRepo.GetMany(ctx, &repo.CampaignEmailFilter{
+		Conditions: []*repo.Condition{
+			{
+				Field: "campaign_id",
+				Op:    repo.OpEq,
+				Value: campaign.GetID(),
+			},
+		},
+	})
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get campaign emails err: %v", err)
+		return err
+	}
+
+	for _, campaignEmail := range campaignEmails {
+		campaignResult := new(entity.CampaignResult)
+
+		totalUniqueOpen, err := h.campaignLogRepo.CountTotalUniqueOpen(ctx, campaignEmail.GetID())
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("count campaign email total unique open err: %v, campaign_email_id: %v", err, campaignEmail.GetID())
+			return err
+		}
+
+		clickCountsByLink, err := h.campaignLogRepo.CountClicksByLink(ctx, campaignEmail.GetID())
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("count campaign email clicks err: %v, campaign_email_id: %v", err, campaignEmail.GetID())
+			return err
+		}
+
+		var (
+			totalClicks uint64
+			clickCounts = make([]*entity.ClickCount, 0)
+		)
+		for link, clickCount := range clickCountsByLink {
+			totalClicks += clickCount
+
+			clickCounts = append(clickCounts, &entity.ClickCount{
+				Link:  goutil.String(link),
+				Count: goutil.Uint64(clickCount),
+			})
+		}
+
+		campaignResult.TotalUniqueOpenCount = goutil.Uint64(totalUniqueOpen)
+		campaignResult.TotalClickCount = goutil.Uint64(totalClicks)
+		campaignResult.ClickCounts = clickCounts
+
+		campaignEmail.CampaignResult = campaignResult
+	}
+
+	campaign.CampaignEmails = campaignEmails
+	res.Campaign = campaign
 
 	return nil
 }

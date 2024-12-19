@@ -86,7 +86,9 @@ CREATE TABLE IF NOT EXISTS campaign_log_tab (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `campaign_email_id` BIGINT UNSIGNED NOT NULL,
     `event` TINYINT UNSIGNED NOT NULL,
-    `log_extra` TEXT NOT NULL,
+    `link` VARCHAR(2048) NOT NULL DEFAULT '',
+    `email` VARCHAR(320) NOT NULL,
+    `event_time` BIGINT UNSIGNED NOT NULL,
     `create_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
     KEY `idx_campaign_id` (`campaign_email_id`)

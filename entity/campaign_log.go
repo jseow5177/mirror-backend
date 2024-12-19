@@ -13,19 +13,14 @@ var SupportedEvents = map[string]Event{
 	"click":         EventClick,
 }
 
-type LogExtra struct {
-	Link    *string `json:"link,omitempty"`
-	TsEpoch *uint64 `json:"ts_epoch,omitempty"`
-	Date    *string `json:"date,omitempty"`
-	Email   *string `json:"email,omitempty"`
-}
-
 type CampaignLog struct {
-	ID              *uint64  `json:"id,omitempty"`
-	CampaignEmailID *uint64  `json:"campaign_email_id,omitempty"`
-	Event           Event    `json:"event,omitempty"`
-	LogExtra        LogExtra `json:"log_extra,omitempty"`
-	CreateTime      *uint64  `json:"create_time,omitempty"`
+	ID              *uint64 `json:"id,omitempty"`
+	CampaignEmailID *uint64 `json:"campaign_email_id,omitempty"`
+	Event           Event   `json:"event,omitempty"`
+	Link            *string `json:"link,omitempty"`
+	Email           *string `json:"email,omitempty"`
+	EventTime       *uint64 `json:"event_time,omitempty"`
+	CreateTime      *uint64 `json:"create_time,omitempty"`
 }
 
 func (e *CampaignLog) GetEvent() Event {

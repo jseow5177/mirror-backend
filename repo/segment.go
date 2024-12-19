@@ -3,6 +3,7 @@ package repo
 import (
 	"cdp/config"
 	"cdp/entity"
+	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
 	"context"
 	"encoding/json"
@@ -13,7 +14,7 @@ import (
 )
 
 var (
-	ErrSegmentNotFound = errors.New("segment not found")
+	ErrSegmentNotFound = errutil.NotFoundError(errors.New("segment not found"))
 )
 
 type Segment struct {

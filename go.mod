@@ -8,14 +8,12 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.26.0
 	github.com/IBM/sarama v1.43.2
 	github.com/aws/aws-sdk-go v1.54.15
-	github.com/dchest/uniuri v1.2.0
 	github.com/getbrevo/brevo-go v1.1.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/schema v1.4.1
 	github.com/rs/cors v1.11.1
 	github.com/rs/zerolog v1.33.0
-	golang.org/x/net v0.31.0
 	golang.org/x/sync v0.7.0
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.10
@@ -56,6 +54,7 @@ require (
 	go.opentelemetry.io/otel v1.28.0 // indirect
 	go.opentelemetry.io/otel/trace v1.28.0 // indirect
 	golang.org/x/crypto v0.29.0 // indirect
+	golang.org/x/net v0.31.0 // indirect
 	golang.org/x/oauth2 v0.21.0 // indirect
 	golang.org/x/sys v0.27.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

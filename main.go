@@ -31,15 +31,16 @@ type server struct {
 	cfg *config.Config
 
 	// repos
-	tagRepo         repo.TagRepo
-	segmentRepo     repo.SegmentRepo
-	fileRepo        repo.FileRepo
-	taskRepo        repo.TaskRepo
-	mappingIDRepo   repo.MappingIDRepo
-	queryRepo       repo.QueryRepo
-	emailRepo       repo.EmailRepo
-	campaignRepo    repo.CampaignRepo
-	campaignLogRepo repo.CampaignLogRepo
+	tagRepo           repo.TagRepo
+	segmentRepo       repo.SegmentRepo
+	fileRepo          repo.FileRepo
+	taskRepo          repo.TaskRepo
+	mappingIDRepo     repo.MappingIDRepo
+	queryRepo         repo.QueryRepo
+	emailRepo         repo.EmailRepo
+	campaignRepo      repo.CampaignRepo
+	campaignEmailRepo repo.CampaignEmailRepo
+	campaignLogRepo   repo.CampaignLogRepo
 
 	// services
 	emailService dep.EmailService
@@ -201,6 +202,21 @@ func (s *server) Start() error {
 		}
 	}()
 
+	// campaign_email repo
+	s.campaignEmailRepo, err = repo.NewCampaignEmailRepo(s.ctx, s.cfg.MetadataDB)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init campaign email repo failed, err: %v", err)
+		return err
+	}
+	defer func() {
+		if err != nil && s.campaignEmailRepo != nil {
+			if err := s.campaignEmailRepo.Close(s.ctx); err != nil {
+				log.Ctx(s.ctx).Error().Msgf("close campaign email repo failed, err: %v", err)
+				return
+			}
+		}
+	}()
+
 	// campaign repo
 	s.campaignRepo, err = repo.NewCampaignRepo(s.ctx, s.cfg.MetadataDB)
 	if err != nil {
@@ -252,7 +268,7 @@ func (s *server) Start() error {
 	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
 	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
-	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailRepo, s.emailService, s.segmentHandler, s.campaignLogRepo)
+	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailRepo, s.emailService, s.segmentHandler, s.campaignEmailRepo, s.campaignLogRepo)
 
 	// ===== start server ===== //
 
@@ -589,6 +605,19 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.GetCampaignsResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.campaignHandler.GetCampaigns(ctx, req.(*handler.GetCampaignsRequest), res.(*handler.GetCampaignsResponse))
+			},
+		},
+	})
+
+	// get_campaign
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetCampaign,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetCampaignRequest),
+			Res: new(handler.GetCampaignResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.campaignHandler.GetCampaign(ctx, req.(*handler.GetCampaignRequest), res.(*handler.GetCampaignResponse))
 			},
 		},
 	})

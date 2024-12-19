@@ -3,6 +3,7 @@ package repo
 import (
 	"cdp/config"
 	"cdp/entity"
+	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
 	"context"
 	"errors"
@@ -10,25 +11,8 @@ import (
 	"gorm.io/gorm"
 )
 
-type CampaignEmail struct {
-	ID         *uint64
-	CampaignID *uint64
-	EmailID    *uint64
-	Subject    *string
-	Ratio      *uint64
-}
-
-type CampaignEmailFilter struct {
-	ID         *uint64
-	CampaignID *uint64
-}
-
-func (m *CampaignEmail) TableName() string {
-	return "campaign_email_tab"
-}
-
 var (
-	ErrCampaignEmailNotFound = errors.New("campaign email not found")
+	ErrCampaignNotFound = errutil.NotFoundError(errors.New("campaign not found"))
 )
 
 type Campaign struct {
@@ -69,10 +53,9 @@ func (m *Campaign) GetID() uint64 {
 
 type CampaignRepo interface {
 	Create(ctx context.Context, campaign *entity.Campaign) (uint64, error)
-	Update(ctx context.Context, f *CampaignFilter, campaign *entity.Campaign) error
+	Get(ctx context.Context, campaignID uint64) (*entity.Campaign, error)
+	Update(ctx context.Context, campaignID uint64, campaign *entity.Campaign) error
 	GetMany(ctx context.Context, f *CampaignFilter) ([]*entity.Campaign, *entity.Pagination, error)
-	GetCampaignEmail(ctx context.Context, f *CampaignEmailFilter) (*entity.CampaignEmail, error)
-	UpdateCampaignEmail(ctx context.Context, f *CampaignEmailFilter, campaignEmail *entity.CampaignEmail) error
 	Close(ctx context.Context) error
 }
 
@@ -88,40 +71,25 @@ func NewCampaignRepo(_ context.Context, mysqlCfg config.MySQL) (CampaignRepo, er
 	return &campaignRepo{orm: orm}, nil
 }
 
-func (r *campaignRepo) GetCampaignEmail(_ context.Context, f *CampaignEmailFilter) (*entity.CampaignEmail, error) {
-	campaignEmail := new(CampaignEmail)
-	if err := r.orm.Where(f).First(campaignEmail).Error; err != nil {
+func (r *campaignRepo) Get(ctx context.Context, campaignID uint64) (*entity.Campaign, error) {
+	campaignModel := new(Campaign)
+	if err := r.orm.Where("id = ?", campaignID).First(campaignModel).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrCampaignEmailNotFound
+			return nil, ErrCampaignNotFound
 		}
-	}
-
-	return ToCampaignEmail(campaignEmail), nil
-}
-
-func (r *campaignRepo) UpdateCampaignEmail(_ context.Context, f *CampaignEmailFilter, campaignEmail *entity.CampaignEmail) error {
-	campaignEmailModel := ToCampaignEmailModel(campaignEmail)
-	return r.orm.Model(campaignEmailModel).Where(f).Updates(ToCampaignEmailModel(campaignEmail)).Error
-}
-
-func (r *campaignRepo) GetManyCampaignEmails(_ context.Context, f *CampaignEmailFilter) ([]*entity.CampaignEmail, error) {
-	mCampaignEmails := make([]*CampaignEmail, 0)
-	if err := r.orm.Where(f).Find(&mCampaignEmails).Error; err != nil {
 		return nil, err
 	}
 
-	campaignEmails := make([]*entity.CampaignEmail, len(mCampaignEmails))
-	for i, mCampaignEmail := range mCampaignEmails {
-		campaignEmails[i] = ToCampaignEmail(mCampaignEmail)
-	}
-
-	return campaignEmails, nil
+	return ToCampaign(campaignModel), nil
 }
 
-func (r *campaignRepo) Update(_ context.Context, f *CampaignFilter, campaign *entity.Campaign) error {
-	cond, args := ToSqlWithArgs(f.Conditions)
+func (r *campaignRepo) Update(_ context.Context, campaignID uint64, campaign *entity.Campaign) error {
 	campaignModel := ToCampaignModel(campaign)
-	return r.orm.Model(campaignModel).Where(cond, args...).Updates(campaignModel).Error
+	return r.orm.
+		Model(campaignModel).
+		Where("id = ?", campaignID).
+		Updates(campaignModel).
+		Error
 }
 
 func (r *campaignRepo) Create(_ context.Context, campaign *entity.Campaign) (uint64, error) {
@@ -190,16 +158,7 @@ func (r *campaignRepo) GetMany(ctx context.Context, f *CampaignFilter) ([]*entit
 
 	campaigns := make([]*entity.Campaign, len(mCampaigns))
 	for i, mCampaign := range mCampaigns {
-		campaign := ToCampaign(mCampaign)
-
-		campaignEmails, err := r.GetManyCampaignEmails(ctx, &CampaignEmailFilter{
-			CampaignID: campaign.ID,
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		campaign.CampaignEmails = campaignEmails
-		campaigns[i] = campaign
+		campaigns[i] = ToCampaign(mCampaign)
 	}
 
 	return campaigns, &entity.Pagination{
@@ -223,26 +182,6 @@ func (r *campaignRepo) Close(_ context.Context) error {
 		}
 	}
 	return nil
-}
-
-func ToCampaignEmail(campaignEmail *CampaignEmail) *entity.CampaignEmail {
-
-	return &entity.CampaignEmail{
-		ID:         campaignEmail.ID,
-		CampaignID: campaignEmail.CampaignID,
-		EmailID:    campaignEmail.EmailID,
-		Subject:    campaignEmail.Subject,
-		Ratio:      campaignEmail.Ratio,
-	}
-}
-
-func ToCampaignEmailModel(campaignEmail *entity.CampaignEmail) *CampaignEmail {
-	return &CampaignEmail{
-		CampaignID: campaignEmail.CampaignID,
-		EmailID:    campaignEmail.EmailID,
-		Subject:    campaignEmail.Subject,
-		Ratio:      campaignEmail.Ratio,
-	}
 }
 
 func ToCampaign(campaign *Campaign) *entity.Campaign {

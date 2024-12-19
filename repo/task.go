@@ -3,6 +3,7 @@ package repo
 import (
 	"cdp/config"
 	"cdp/entity"
+	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
 	"context"
 	"errors"
@@ -11,7 +12,7 @@ import (
 )
 
 var (
-	ErrTaskNotFound = errors.New("task not found")
+	ErrTaskNotFound = errutil.NotFoundError(errors.New("task not found"))
 )
 
 // fields that can be updated

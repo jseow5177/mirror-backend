@@ -3,6 +3,7 @@ package repo
 import (
 	"cdp/config"
 	"cdp/entity"
+	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
 	"context"
 	"encoding/json"
@@ -32,7 +33,7 @@ func (p *Pagination) GetPage() uint32 {
 }
 
 var (
-	ErrTagNotFound = errors.New("tag not found")
+	ErrTagNotFound = errutil.NotFoundError(errors.New("tag not found"))
 )
 
 type Tag struct {

@@ -3,6 +3,7 @@ package repo
 import (
 	"cdp/config"
 	"cdp/entity"
+	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
 	"context"
 	"errors"
@@ -12,7 +13,7 @@ import (
 )
 
 var (
-	ErrEmailNotFound = errors.New("email not found")
+	ErrEmailNotFound = errutil.NotFoundError(errors.New("email not found"))
 )
 
 type Email struct {
