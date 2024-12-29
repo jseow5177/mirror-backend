@@ -9,6 +9,7 @@ const (
 	PathGetMappingIDs        = "/get_mapping_ids"
 	PathGetSetMappingIDs     = "/get_set_mapping_ids"
 	PathCreateSegment        = "/create_segment"
+	PathGetSegment           = "/get_segment"
 	PathGetSegments          = "/get_segments"
 	PathCountUd              = "/count_ud"
 	PathPreviewUd            = "/preview_ud"

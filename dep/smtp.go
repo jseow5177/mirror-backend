@@ -65,9 +65,9 @@ func (s *emailService) SendEmail(ctx context.Context, sendSmtpEmail SendSmtpEmai
 		return errors.New("recipients exceeds maximum limit")
 	}
 
-	to := make([]brevo.SendSmtpEmailTo, 0)
+	to := make([]brevo.SendSmtpEmailBcc, 0)
 	for _, r := range sendSmtpEmail.To {
-		to = append(to, brevo.SendSmtpEmailTo{
+		to = append(to, brevo.SendSmtpEmailBcc{
 			Email: r.Email,
 		})
 	}
@@ -79,11 +79,11 @@ func (s *emailService) SendEmail(ctx context.Context, sendSmtpEmail SendSmtpEmai
 		ReplyTo: &brevo.SendSmtpEmailReplyTo{
 			Email: sendSmtpEmail.From.Email,
 		},
-		To:          to,
+		Bcc:         to,
 		Subject:     sendSmtpEmail.Subject,
 		HtmlContent: sendSmtpEmail.HtmlContent,
 		Tags:        []string{fmt.Sprint(sendSmtpEmail.CampaignEmailID)},
-		ScheduledAt: time.Now().Add(5 * time.Second),
+		ScheduledAt: time.Now().Add(10 * time.Second),
 	}
 
 	if err := s.postHttpRequest(ctx, sendEmailUrl, body); err != nil {

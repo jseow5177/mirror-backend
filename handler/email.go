@@ -13,6 +13,7 @@ import (
 
 type EmailHandler interface {
 	CreateEmail(ctx context.Context, req *CreateEmailRequest, res *CreateEmailResponse) error
+	GetEmail(ctx context.Context, req *GetEmailRequest, res *GetEmailResponse) error
 	GetEmails(ctx context.Context, req *GetEmailsRequest, res *GetEmailsResponse) error
 }
 
@@ -72,6 +73,36 @@ func (h *emailHandler) CreateEmail(ctx context.Context, req *CreateEmailRequest,
 	}
 
 	email.ID = goutil.Uint64(id)
+	res.Email = email
+
+	return nil
+}
+
+type GetEmailRequest struct {
+	EmailID *uint64 `json:"email_id,omitempty"`
+}
+
+type GetEmailResponse struct {
+	Email *entity.Email `json:"email,omitempty"`
+}
+
+var GetEmailValidator = validator.MustForm(map[string]validator.Validator{
+	"email_id": &validator.UInt64{},
+})
+
+func (h *emailHandler) GetEmail(ctx context.Context, req *GetEmailRequest, res *GetEmailResponse) error {
+	if err := GetEmailValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	email, err := h.emailRepo.Get(ctx, &repo.EmailFilter{
+		ID: req.EmailID,
+	})
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get email err: %v", err)
+		return err
+	}
+
 	res.Email = email
 
 	return nil

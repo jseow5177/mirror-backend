@@ -5,8 +5,10 @@ import (
 	"cdp/entity"
 	"cdp/pkg/goutil"
 	"context"
+	"database/sql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"math"
 )
 
 type LogExtra struct {
@@ -31,6 +33,7 @@ type CampaignLogRepo interface {
 	BatchCreate(ctx context.Context, campaignLogs []*entity.CampaignLog) error
 	CountTotalUniqueOpen(ctx context.Context, campaignEmailID uint64) (uint64, error)
 	CountClicksByLink(ctx context.Context, campaignEmailID uint64) (map[string]uint64, error)
+	GetAvgOpenTime(ctx context.Context, campaignEmailID uint64) (uint64, error)
 	Close(ctx context.Context) error
 }
 
@@ -64,6 +67,23 @@ func (r *campaignLogRepo) CountTotalUniqueOpen(_ context.Context, campaignEmailI
 		return 0, err
 	}
 	return uint64(count), nil
+}
+
+func (r *campaignLogRepo) GetAvgOpenTime(_ context.Context, campaignEmailID uint64) (uint64, error) {
+	var avgOpenTime sql.NullFloat64
+	if err := r.orm.
+		Model(new(CampaignLog)).
+		Where("campaign_email_id = ? AND event = ?", campaignEmailID, entity.EventUniqueOpened).
+		Select("avg(event_time)").
+		Scan(&avgOpenTime).Error; err != nil {
+		return 0, err
+	}
+
+	if !avgOpenTime.Valid {
+		return 0, nil
+	}
+
+	return uint64(math.Round(avgOpenTime.Float64)), nil
 }
 
 func (r *campaignLogRepo) CountClicksByLink(_ context.Context, campaignEmailID uint64) (map[string]uint64, error) {

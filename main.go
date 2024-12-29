@@ -268,7 +268,7 @@ func (s *server) Start() error {
 	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
 	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
-	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailRepo, s.emailService, s.segmentHandler, s.campaignEmailRepo, s.campaignLogRepo)
+	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailHandler, s.emailService, s.segmentHandler, s.campaignEmailRepo, s.campaignLogRepo)
 
 	// ===== start server ===== //
 
@@ -397,6 +397,19 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.GetTagsResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.tagHandler.GetTags(ctx, req.(*handler.GetTagsRequest), res.(*handler.GetTagsResponse))
+			},
+		},
+	})
+
+	// get_segment
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetSegment,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetSegmentRequest),
+			Res: new(handler.GetSegmentResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.segmentHandler.GetSegment(ctx, req.(*handler.GetSegmentRequest), res.(*handler.GetSegmentResponse))
 			},
 		},
 	})

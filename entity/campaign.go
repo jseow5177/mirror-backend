@@ -2,11 +2,6 @@ package entity
 
 type CampaignStatus uint32
 
-type ClickCount struct {
-	Link  *string `json:"link,omitempty"`
-	Count *uint64 `json:"count,omitempty"`
-}
-
 const (
 	CampaignStatusUnknown CampaignStatus = iota
 	CampaignStatusPending
@@ -26,6 +21,8 @@ type Campaign struct {
 	Schedule       *uint64          `json:"schedule,omitempty"`
 	CreateTime     *uint64          `json:"create_time,omitempty"`
 	UpdateTime     *uint64          `json:"update_time,omitempty"`
+
+	Segment *Segment `json:"segment,omitempty"`
 }
 
 func (e *Campaign) GetID() uint64 {

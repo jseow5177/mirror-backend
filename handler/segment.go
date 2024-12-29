@@ -17,6 +17,7 @@ type SegmentHandler interface {
 	CreateSegment(ctx context.Context, req *CreateSegmentRequest, res *CreateSegmentResponse) error
 	CountUd(ctx context.Context, req *CountUdRequest, res *CountUdResponse) error
 	GetUds(ctx context.Context, req *GetUdsRequest, res *GetUdsResponse) error
+	GetSegment(ctx context.Context, req *GetSegmentRequest, res *GetSegmentResponse) error
 	GetSegments(ctx context.Context, req *GetSegmentsRequest, res *GetSegmentsResponse) error
 	PreviewUd(ctx context.Context, req *PreviewUdRequest, res *PreviewUdResponse) error
 	CountSegments(ctx context.Context, req *CountSegmentsRequest, res *CountSegmentsResponse) error
@@ -57,6 +58,36 @@ func (h *segmentHandler) CountSegments(ctx context.Context, req *CountSegmentsRe
 	}
 
 	res.Count = goutil.Uint64(count)
+
+	return nil
+}
+
+type GetSegmentRequest struct {
+	SegmentID *uint64 `json:"segment_id,omitempty"`
+}
+
+type GetSegmentResponse struct {
+	Segment *entity.Segment `json:"segment,omitempty"`
+}
+
+var GetSegmentValidator = validator.MustForm(map[string]validator.Validator{
+	"segment_id": &validator.UInt64{},
+})
+
+func (h *segmentHandler) GetSegment(ctx context.Context, req *GetSegmentRequest, res *GetSegmentResponse) error {
+	if err := GetSegmentValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	segment, err := h.segmentRepo.Get(ctx, &repo.SegmentFilter{
+		ID: req.SegmentID,
+	})
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get segment err: %v", err)
+		return err
+	}
+
+	res.Segment = segment
 
 	return nil
 }
@@ -288,13 +319,13 @@ func (h *segmentHandler) PreviewUd(ctx context.Context, req *PreviewUdRequest, r
 		return nil
 	}
 
-	count, err := h.queryRepo.Count(ctx, req.Criteria)
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get preview count failed: %v", err)
-		return err
-	}
+	//count, err := h.queryRepo.Count(ctx, req.Criteria)
+	//if err != nil {
+	//	log.Ctx(ctx).Error().Msgf("get preview count failed: %v", err)
+	//	return err
+	//}
 
-	res.Count = goutil.Int64(int64(count))
+	res.Count = goutil.Int64(0)
 
 	return nil
 }
