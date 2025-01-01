@@ -7,11 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	brevo "github.com/getbrevo/brevo-go/lib"
 	"io"
 	"net/http"
 	"time"
-
-	brevo "github.com/getbrevo/brevo-go/lib"
 )
 
 const (
@@ -65,29 +64,24 @@ func (s *emailService) SendEmail(ctx context.Context, sendSmtpEmail SendSmtpEmai
 		return errors.New("recipients exceeds maximum limit")
 	}
 
-	to := make([]brevo.SendSmtpEmailBcc, 0)
 	for _, r := range sendSmtpEmail.To {
-		to = append(to, brevo.SendSmtpEmailBcc{
-			Email: r.Email,
-		})
-	}
+		body := brevo.SendSmtpEmail{
+			Sender: &brevo.SendSmtpEmailSender{
+				Email: sendSmtpEmail.From.Email,
+			},
+			ReplyTo: &brevo.SendSmtpEmailReplyTo{
+				Email: sendSmtpEmail.From.Email,
+			},
+			To:          []brevo.SendSmtpEmailTo{{Email: r.Email}},
+			Subject:     sendSmtpEmail.Subject,
+			HtmlContent: sendSmtpEmail.HtmlContent,
+			Tags:        []string{fmt.Sprint(sendSmtpEmail.CampaignEmailID)},
+			ScheduledAt: time.Now().Add(10 * time.Second),
+		}
 
-	body := brevo.SendSmtpEmail{
-		Sender: &brevo.SendSmtpEmailSender{
-			Email: sendSmtpEmail.From.Email,
-		},
-		ReplyTo: &brevo.SendSmtpEmailReplyTo{
-			Email: sendSmtpEmail.From.Email,
-		},
-		Bcc:         to,
-		Subject:     sendSmtpEmail.Subject,
-		HtmlContent: sendSmtpEmail.HtmlContent,
-		Tags:        []string{fmt.Sprint(sendSmtpEmail.CampaignEmailID)},
-		ScheduledAt: time.Now().Add(10 * time.Second),
-	}
-
-	if err := s.postHttpRequest(ctx, sendEmailUrl, body); err != nil {
-		return err
+		if err := s.postHttpRequest(ctx, sendEmailUrl, body); err != nil {
+			return err
+		}
 	}
 
 	return nil

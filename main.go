@@ -41,6 +41,8 @@ type server struct {
 	campaignRepo      repo.CampaignRepo
 	campaignEmailRepo repo.CampaignEmailRepo
 	campaignLogRepo   repo.CampaignLogRepo
+	tenantRepo        repo.TenantRepo
+	userRepo          repo.UserRepo
 
 	// services
 	emailService dep.EmailService
@@ -52,6 +54,8 @@ type server struct {
 	mappingIDHandler handler.MappingIDHandler
 	emailHandler     handler.EmailHandler
 	campaignHandler  handler.CampaignHandler
+	tenantHandler    handler.TenantHandler
+	userHandler      handler.UserHandler
 }
 
 func main() {
@@ -117,6 +121,7 @@ func (s *server) Start() error {
 		}
 	}()
 
+	// segment repo
 	s.segmentRepo, err = repo.NewSegmentRepo(s.ctx, s.cfg.MetadataDB)
 	if err != nil {
 		log.Ctx(s.ctx).Error().Msgf("init segment repo failed, err: %v", err)
@@ -245,6 +250,32 @@ func (s *server) Start() error {
 		}
 	}()
 
+	// tenant repo
+	s.tenantRepo, err = repo.NewTenantRepo(s.ctx, s.cfg.MetadataDB)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init tenant repo failed, err: %v", err)
+		return err
+	}
+	defer func() {
+		if err != nil && s.tenantRepo != nil {
+			log.Ctx(s.ctx).Error().Msgf("close tenant repo failed, err: %v", err)
+			return
+		}
+	}()
+
+	// user repo
+	s.userRepo, err = repo.NewUserRepo(s.ctx, s.cfg.MetadataDB)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init user repo failed, err: %v", err)
+		return err
+	}
+	defer func() {
+		if err != nil && s.userRepo != nil {
+			log.Ctx(s.ctx).Error().Msgf("close user repo failed, err: %v", err)
+			return
+		}
+	}()
+
 	// ===== init deps ===== //
 
 	s.emailService, err = dep.NewEmailService(s.ctx, s.cfg)
@@ -269,6 +300,8 @@ func (s *server) Start() error {
 	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
 	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailHandler, s.emailService, s.segmentHandler, s.campaignEmailRepo, s.campaignLogRepo)
+	s.tenantHandler = handler.NewTenantHandler(s.tenantRepo, s.userRepo)
+	s.userHandler = handler.NewUserHandler(s.userRepo)
 
 	// ===== start server ===== //
 
@@ -353,6 +386,13 @@ func (s *server) Stop() error {
 	if s.campaignLogRepo != nil {
 		if err := s.campaignLogRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close campaign log repo failed, err: %v", err)
+			return err
+		}
+	}
+
+	if s.tenantRepo != nil {
+		if err := s.tenantRepo.Close(s.ctx); err != nil {
+			log.Ctx(s.ctx).Error().Msgf("close tenant repo failed, err: %v", err)
 			return err
 		}
 	}
@@ -631,6 +671,58 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.GetCampaignResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.campaignHandler.GetCampaign(ctx, req.(*handler.GetCampaignRequest), res.(*handler.GetCampaignResponse))
+			},
+		},
+	})
+
+	// create_tenant
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCreateTenant,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CreateTenantRequest),
+			Res: new(handler.CreateTenantResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tenantHandler.CreateTenant(ctx, req.(*handler.CreateTenantRequest), res.(*handler.CreateTenantResponse))
+			},
+		},
+	})
+
+	// get_tenant
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetTenant,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetTenantRequest),
+			Res: new(handler.GetTenantResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tenantHandler.GetTenant(ctx, req.(*handler.GetTenantRequest), res.(*handler.GetTenantResponse))
+			},
+		},
+	})
+
+	// create_user
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCreateUser,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CreateUserRequest),
+			Res: new(handler.CreateUserResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.userHandler.CreateUser(ctx, req.(*handler.CreateUserRequest), res.(*handler.CreateUserResponse))
+			},
+		},
+	})
+
+	// init_tenant
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathInitTenant,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.InitTenantRequest),
+			Res: new(handler.InitTenantResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tenantHandler.InitTenant(ctx, req.(*handler.InitTenantRequest), res.(*handler.InitTenantResponse))
 			},
 		},
 	})

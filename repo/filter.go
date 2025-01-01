@@ -8,8 +8,8 @@ import (
 type LogicalOp string
 
 const (
-	And LogicalOp = "AND"
-	Or  LogicalOp = "OR"
+	LogicalOpAnd LogicalOp = "AND"
+	LogicalOpOr  LogicalOp = "OR"
 )
 
 type Op string
@@ -25,6 +25,11 @@ const (
 	OpIn    Op = "IN"
 )
 
+type Filter struct {
+	Conditions []*Condition
+	Pagination *Pagination
+}
+
 type Condition struct {
 	Field         string
 	Op            Op
@@ -32,8 +37,8 @@ type Condition struct {
 	NextLogicalOp LogicalOp
 }
 
-func ToSqlWithArgs(conditions []*Condition) (sql string, args []interface{}) {
-	for i, condition := range conditions {
+func ToSqlWithArgs(f *Filter) (sql string, args []interface{}) {
+	for i, condition := range f.Conditions {
 		if condition == nil || goutil.IsNil(condition.Value) {
 			continue
 		}
@@ -65,8 +70,13 @@ func ToSqlWithArgs(conditions []*Condition) (sql string, args []interface{}) {
 			args = append(args, condition.Value)
 		}
 
-		if len(conditions) > 1 && i != len(conditions)-1 {
-			sql += fmt.Sprintf(" %s ", condition.NextLogicalOp)
+		logicalOp := condition.NextLogicalOp
+		if logicalOp == "" {
+			logicalOp = LogicalOpAnd
+		}
+
+		if len(f.Conditions) > 1 && i != len(f.Conditions)-1 {
+			sql += fmt.Sprintf(" %s ", logicalOp)
 		}
 	}
 

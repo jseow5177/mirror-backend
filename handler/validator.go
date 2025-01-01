@@ -57,6 +57,33 @@ func UdTagValValidator() validator.Validator {
 	})
 }
 
+func PasswordValidator(optional bool) validator.Validator {
+	return &validator.String{
+		Optional:  optional,
+		UnsetZero: true,
+		MinLen:    8,
+		MaxLen:    128,
+	}
+}
+
+func DisplayNameValidator(optional bool) validator.Validator {
+	return &validator.String{
+		Optional:  optional,
+		UnsetZero: true,
+		MaxLen:    100,
+		Regex:     regexp.MustCompile(`^[a-zA-Z0-9_.\s-]+$`),
+	}
+}
+
+func EmailValidator(optional bool) validator.Validator {
+	return &validator.String{
+		Optional:  optional,
+		UnsetZero: true,
+		MaxLen:    254,
+		Regex:     regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`),
+	}
+}
+
 func ResourceNameValidator(optional bool) validator.Validator {
 	return &validator.String{
 		Optional:  optional,

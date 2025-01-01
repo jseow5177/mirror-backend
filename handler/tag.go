@@ -172,7 +172,7 @@ func (h *tagHandler) CreateTag(ctx context.Context, req *CreateTagRequest, res *
 	}
 	_, err := h.tagRepo.Get(ctx, f)
 	if err == nil {
-		return errors.New("tag already exists")
+		return errutil.ConflictError(errors.New("tag already exists"))
 	}
 
 	if !errors.Is(err, repo.ErrTagNotFound) {

@@ -16,7 +16,10 @@ import (
 	"strings"
 )
 
-const basePath = "/api/v1"
+const (
+	appBasePath   = "/api/v1"
+	adminBasePath = "/api/admin/v1"
+)
 
 type FileMeta struct {
 	File       multipart.File
@@ -50,6 +53,7 @@ type HttpRoute struct {
 	Path        string
 	Handler     Handler
 	Middlewares []Middleware
+	IsAdmin     bool
 }
 
 type HttpRouter struct {
@@ -69,6 +73,11 @@ func (r *HttpRouter) RegisterHttpRoute(hr *HttpRoute) {
 		for i := len(hr.Middlewares) - 1; i >= 0; i-- {
 			chain = hr.Middlewares[i].Handle(chain)
 		}
+	}
+
+	basePath := appBasePath
+	if hr.IsAdmin {
+		basePath = adminBasePath
 	}
 
 	r.Methods(hr.Method).Path(fmt.Sprintf("%s%s", basePath, hr.Path)).Handler(chain)

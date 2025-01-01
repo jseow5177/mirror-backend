@@ -3,6 +3,7 @@ package goutil
 import (
 	"encoding/base64"
 	"errors"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func ContainsStr(arr []string, str string) bool {
@@ -30,4 +31,12 @@ func IsBase64EncodedHTML(input string) error {
 	}
 
 	return nil
+}
+
+func BCrypt(s string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(s), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
 }

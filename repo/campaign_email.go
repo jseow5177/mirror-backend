@@ -18,11 +18,6 @@ type CampaignEmail struct {
 	Ratio      *uint64
 }
 
-type CampaignEmailFilter struct {
-	Conditions []*Condition
-	Pagination *Pagination
-}
-
 func (m *CampaignEmail) TableName() string {
 	return "campaign_email_tab"
 }
@@ -32,9 +27,9 @@ var (
 )
 
 type CampaignEmailRepo interface {
-	Get(ctx context.Context, f *CampaignEmailFilter) (*entity.CampaignEmail, error)
-	Update(ctx context.Context, f *CampaignEmailFilter, campaignEmail *entity.CampaignEmail) error
-	GetMany(ctx context.Context, f *CampaignEmailFilter) ([]*entity.CampaignEmail, error)
+	Get(ctx context.Context, f *Filter) (*entity.CampaignEmail, error)
+	Update(ctx context.Context, f *Filter, campaignEmail *entity.CampaignEmail) error
+	GetMany(ctx context.Context, f *Filter) ([]*entity.CampaignEmail, error)
 	Close(ctx context.Context) error
 }
 
@@ -50,8 +45,8 @@ func NewCampaignEmailRepo(_ context.Context, mysqlCfg config.MySQL) (CampaignEma
 	return &campaignEmailRepo{orm: orm}, nil
 }
 
-func (r *campaignEmailRepo) Get(_ context.Context, f *CampaignEmailFilter) (*entity.CampaignEmail, error) {
-	cond, args := ToSqlWithArgs(f.Conditions)
+func (r *campaignEmailRepo) Get(_ context.Context, f *Filter) (*entity.CampaignEmail, error) {
+	cond, args := ToSqlWithArgs(f)
 
 	campaignEmail := new(CampaignEmail)
 	if err := r.orm.Where(cond, args...).First(campaignEmail).Error; err != nil {
@@ -63,14 +58,14 @@ func (r *campaignEmailRepo) Get(_ context.Context, f *CampaignEmailFilter) (*ent
 	return ToCampaignEmail(campaignEmail), nil
 }
 
-func (r *campaignEmailRepo) Update(_ context.Context, f *CampaignEmailFilter, campaignEmail *entity.CampaignEmail) error {
-	cond, args := ToSqlWithArgs(f.Conditions)
+func (r *campaignEmailRepo) Update(_ context.Context, f *Filter, campaignEmail *entity.CampaignEmail) error {
+	cond, args := ToSqlWithArgs(f)
 	campaignEmailModel := ToCampaignEmailModel(campaignEmail)
 	return r.orm.Model(campaignEmailModel).Where(cond, args...).Updates(ToCampaignEmailModel(campaignEmail)).Error
 }
 
-func (r *campaignEmailRepo) GetMany(_ context.Context, f *CampaignEmailFilter) ([]*entity.CampaignEmail, error) {
-	cond, args := ToSqlWithArgs(f.Conditions)
+func (r *campaignEmailRepo) GetMany(_ context.Context, f *Filter) ([]*entity.CampaignEmail, error) {
+	cond, args := ToSqlWithArgs(f)
 	mCampaignEmails := make([]*CampaignEmail, 0)
 	if err := r.orm.Where(cond, args...).Find(&mCampaignEmails).Error; err != nil {
 		return nil, err

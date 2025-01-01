@@ -82,13 +82,13 @@ func (h *campaignHandler) GetCampaigns(ctx context.Context, req *GetCampaignsReq
 		req.Pagination = new(entity.Pagination)
 	}
 
-	campaigns, pagination, err := h.campaignRepo.GetMany(ctx, &repo.CampaignFilter{
+	campaigns, pagination, err := h.campaignRepo.GetMany(ctx, &repo.Filter{
 		Conditions: []*repo.Condition{
 			{
 				Field:         "name",
 				Op:            repo.OpLike,
 				Value:         req.Name,
-				NextLogicalOp: repo.Or,
+				NextLogicalOp: repo.LogicalOpOr,
 			},
 			{
 				Field: "campaign_desc",
@@ -127,10 +127,10 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 	)
 
 	// fetch without limit
-	campaigns, _, err := h.campaignRepo.GetMany(ctx, &repo.CampaignFilter{
+	campaigns, _, err := h.campaignRepo.GetMany(ctx, &repo.Filter{
 		Conditions: []*repo.Condition{
-			{Field: "status", Op: repo.OpEq, Value: entity.CampaignStatusPending, NextLogicalOp: repo.And},
-			{Field: "schedule", Op: repo.OpLte, Value: now, NextLogicalOp: repo.And},
+			{Field: "status", Op: repo.OpEq, Value: entity.CampaignStatusPending, NextLogicalOp: repo.LogicalOpAnd},
+			{Field: "schedule", Op: repo.OpLte, Value: now},
 		},
 		Pagination: new(repo.Pagination),
 	})
@@ -183,7 +183,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 			}
 
 			// fetch campaign emails
-			campaignEmails, err := h.campaignEmailRepo.GetMany(ctx, &repo.CampaignEmailFilter{
+			campaignEmails, err := h.campaignEmailRepo.GetMany(ctx, &repo.Filter{
 				Conditions: []*repo.Condition{
 					{Field: "campaign_id", Op: repo.OpEq, Value: campaign.GetID()},
 				},
@@ -505,7 +505,7 @@ func (h *campaignHandler) GetCampaign(ctx context.Context, req *GetCampaignReque
 	}
 	campaign.Segment = getSegmentRes.Segment
 
-	campaignEmails, err := h.campaignEmailRepo.GetMany(ctx, &repo.CampaignEmailFilter{
+	campaignEmails, err := h.campaignEmailRepo.GetMany(ctx, &repo.Filter{
 		Conditions: []*repo.Condition{
 			{
 				Field: "campaign_id",

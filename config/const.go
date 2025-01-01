@@ -21,6 +21,10 @@ const (
 	PathOnEmailAction        = "/on_email_action"
 	PathGetCampaigns         = "/get_campaigns"
 	PathGetCampaign          = "/get_campaign"
+	PathCreateTenant         = "/create_tenant"
+	PathGetTenant            = "/get_tenant"
+	PathInitTenant           = "/init_tenant"
+	PathCreateUser           = "/create_user"
 )
 
 const (

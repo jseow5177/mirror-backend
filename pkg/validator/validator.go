@@ -92,7 +92,7 @@ func (f *Form) Validate(form interface{}) error {
 					var val *defaultValue
 					if errors.As(err, &val) {
 						if val.GetValue() == nil {
-							fv.Set(reflect.Zero(fv.Type()))
+							fv.Set(reflect.Zero(fv.Type())) // TODO: Will cause error if type is pointer to scalar type
 						} else {
 							reflect.Indirect(fv).Set(reflect.ValueOf(val.GetValue()))
 						}
@@ -250,7 +250,9 @@ func (stv *String) Validate(value interface{}) error {
 	if str == "" {
 		if stv.Optional {
 			if stv.UnsetZero {
-				return &defaultValue{}
+				return &defaultValue{ // TODO: Support custom default value
+					value: "",
+				}
 			}
 			return nil
 		}
@@ -335,7 +337,9 @@ func (uv *UInt64) Validate(value interface{}) error {
 	if ui == 0 {
 		if uv.Optional {
 			if uv.UnsetZero {
-				return &defaultValue{}
+				return &defaultValue{ // TODO: Support custom default value
+					value: 0,
+				}
 			}
 			return nil
 		}
@@ -389,7 +393,9 @@ func (uv *UInt32) Validate(value interface{}) error {
 	if ui == 0 {
 		if uv.Optional {
 			if uv.UnsetZero {
-				return &defaultValue{}
+				return &defaultValue{ // TODO: Support custom default value
+					value: 0,
+				}
 			}
 			return nil
 		}
@@ -443,7 +449,9 @@ func (uv *Int64) Validate(value interface{}) error {
 	if ui == 0 {
 		if uv.Optional {
 			if uv.UnsetZero {
-				return &defaultValue{}
+				return &defaultValue{ // TODO: Support custom default value
+					value: 0,
+				}
 			}
 			return nil
 		}

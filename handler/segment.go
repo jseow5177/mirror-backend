@@ -185,7 +185,7 @@ func (h *segmentHandler) CreateSegment(ctx context.Context, req *CreateSegmentRe
 	}
 	_, err := h.segmentRepo.Get(ctx, f)
 	if err == nil {
-		return errutil.ValidationError(errors.New("segment already exists"))
+		return errutil.ConflictError(errors.New("segment already exists"))
 	}
 
 	if !errors.Is(err, repo.ErrSegmentNotFound) {

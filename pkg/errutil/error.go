@@ -42,6 +42,13 @@ func NotFoundError(err error) error {
 	}
 }
 
+func ConflictError(err error) error {
+	return HttpError{
+		Code: http.StatusConflict,
+		Err:  err,
+	}
+}
+
 func ParseHttpError(err error) (int, string) {
 	var httpErr HttpError
 	if errors.As(err, &httpErr) {

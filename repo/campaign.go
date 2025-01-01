@@ -35,11 +35,6 @@ func (m *Campaign) GetStatus() uint32 {
 	return 0
 }
 
-type CampaignFilter struct {
-	Conditions []*Condition
-	Pagination *Pagination
-}
-
 func (m *Campaign) TableName() string {
 	return "campaign_tab"
 }
@@ -55,7 +50,7 @@ type CampaignRepo interface {
 	Create(ctx context.Context, campaign *entity.Campaign) (uint64, error)
 	Get(ctx context.Context, campaignID uint64) (*entity.Campaign, error)
 	Update(ctx context.Context, campaignID uint64, campaign *entity.Campaign) error
-	GetMany(ctx context.Context, f *CampaignFilter) ([]*entity.Campaign, *entity.Pagination, error)
+	GetMany(ctx context.Context, f *Filter) ([]*entity.Campaign, *entity.Pagination, error)
 	Close(ctx context.Context) error
 }
 
@@ -71,7 +66,7 @@ func NewCampaignRepo(_ context.Context, mysqlCfg config.MySQL) (CampaignRepo, er
 	return &campaignRepo{orm: orm}, nil
 }
 
-func (r *campaignRepo) Get(ctx context.Context, campaignID uint64) (*entity.Campaign, error) {
+func (r *campaignRepo) Get(_ context.Context, campaignID uint64) (*entity.Campaign, error) {
 	campaignModel := new(Campaign)
 	if err := r.orm.Where("id = ?", campaignID).First(campaignModel).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -121,8 +116,8 @@ func (r *campaignRepo) Create(_ context.Context, campaign *entity.Campaign) (uin
 	return campaignModel.GetID(), nil
 }
 
-func (r *campaignRepo) GetMany(ctx context.Context, f *CampaignFilter) ([]*entity.Campaign, *entity.Pagination, error) {
-	cond, args := ToSqlWithArgs(f.Conditions)
+func (r *campaignRepo) GetMany(_ context.Context, f *Filter) ([]*entity.Campaign, *entity.Pagination, error) {
+	cond, args := ToSqlWithArgs(f)
 
 	var count int64
 	if err := r.orm.Model(new(Campaign)).Where(cond, args...).Count(&count).Error; err != nil {
