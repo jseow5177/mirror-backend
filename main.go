@@ -300,7 +300,7 @@ func (s *server) Start() error {
 	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
 	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailHandler, s.emailService, s.segmentHandler, s.campaignEmailRepo, s.campaignLogRepo)
-	s.tenantHandler = handler.NewTenantHandler(s.tenantRepo, s.userRepo)
+	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.tenantRepo, s.userRepo, s.emailService)
 	s.userHandler = handler.NewUserHandler(s.userRepo)
 
 	// ===== start server ===== //

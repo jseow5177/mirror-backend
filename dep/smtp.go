@@ -27,7 +27,7 @@ type brevoResp struct {
 }
 
 type EmailService interface {
-	SendEmail(ctx context.Context, sendSmtpEmail SendSmtpEmail) error
+	SendEmail(ctx context.Context, sendSmtpEmail *SendSmtpEmail) error
 	Close(ctx context.Context) error
 }
 
@@ -53,13 +53,13 @@ type Receiver struct {
 
 type SendSmtpEmail struct {
 	CampaignEmailID uint64
-	From            Sender
-	To              []Receiver
+	From            *Sender
+	To              []*Receiver
 	Subject         string
 	HtmlContent     string
 }
 
-func (s *emailService) SendEmail(ctx context.Context, sendSmtpEmail SendSmtpEmail) error {
+func (s *emailService) SendEmail(ctx context.Context, sendSmtpEmail *SendSmtpEmail) error {
 	if len(sendSmtpEmail.To) > MaxRecipientsPerSend {
 		return errors.New("recipients exceeds maximum limit")
 	}

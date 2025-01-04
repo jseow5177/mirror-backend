@@ -9,13 +9,18 @@ import (
 )
 
 type Config struct {
-	MetadataDB   MySQL      `json:"metadata_db"`
-	MappingIdDB  MySQL      `json:"mapping_id_db"`
-	QueryDB      ClickHouse `json:"query_db"`
-	FileStore    S3         `json:"file_store"`
-	SMTP         SMTP       `json:"smtp"`
-	ServerDomain string     `json:"server_domain"`
-	TestEmails   []string   `json:"test_emails"`
+	MetadataDB     MySQL      `json:"metadata_db"`
+	MappingIdDB    MySQL      `json:"mapping_id_db"`
+	QueryDB        ClickHouse `json:"query_db"`
+	FileStore      S3         `json:"file_store"`
+	SMTP           SMTP       `json:"smtp"`
+	WebPages       WebPages   `json:"web_pages"`
+	InternalSender string     `json:"internal_sender"`
+	TestEmails     []string   `json:"test_emails"`
+}
+
+type WebPages struct {
+	WelcomePage string `json:"welcome_page"`
 }
 
 type SMTP struct {
@@ -97,8 +102,11 @@ func NewConfig() *Config {
 			Password: "",
 			APIKey:   "",
 		},
-		ServerDomain: fmt.Sprintf("http://localhost:%d", DefaultPort),
-		TestEmails:   []string{},
+		InternalSender: "",
+		WebPages: WebPages{
+			WelcomePage: "",
+		},
+		TestEmails: []string{},
 	}
 }
 

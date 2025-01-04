@@ -248,18 +248,18 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 					}
 
 					// Create a batch of recipients
-					to := make([]dep.Receiver, 0, end-start)
+					to := make([]*dep.Receiver, 0, end-start)
 					for _, email := range emailBucket[start:end] {
-						to = append(to, dep.Receiver{
+						to = append(to, &dep.Receiver{
 							Email: email,
 						})
 					}
 
 					progress += len(to)
 
-					sendSmtpEmail := dep.SendSmtpEmail{
+					sendSmtpEmail := &dep.SendSmtpEmail{
 						CampaignEmailID: campaignEmail.GetID(),
-						From: dep.Sender{
+						From: &dep.Sender{
 							Email: "mirrorcdp@gmail.com",
 						},
 						To:          to,

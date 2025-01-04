@@ -41,3 +41,10 @@ func (e *User) GetPassword() string {
 	}
 	return ""
 }
+
+func (e *User) GetUsername() string {
+	if e != nil && e.Username != nil {
+		return *e.Username
+	}
+	return ""
+}

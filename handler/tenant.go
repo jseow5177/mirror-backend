@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"bytes"
+	"cdp/config"
+	"cdp/dep"
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
@@ -20,14 +23,19 @@ type TenantHandler interface {
 }
 
 type tenantHandler struct {
-	tenantRepo repo.TenantRepo
-	userRepo   repo.UserRepo
+	cfg          *config.Config
+	tenantRepo   repo.TenantRepo
+	userRepo     repo.UserRepo
+	emailService dep.EmailService
 }
 
-func NewTenantHandler(tenantRepo repo.TenantRepo, userRepo repo.UserRepo) TenantHandler {
+func NewTenantHandler(cfg *config.Config, tenantRepo repo.TenantRepo,
+	userRepo repo.UserRepo, emailService dep.EmailService) TenantHandler {
 	return &tenantHandler{
-		tenantRepo: tenantRepo,
-		userRepo:   userRepo,
+		cfg:          cfg,
+		tenantRepo:   tenantRepo,
+		userRepo:     userRepo,
+		emailService: emailService,
 	}
 }
 
@@ -222,6 +230,39 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 			return err
 		}
 	}
+
+	go func() {
+		for _, user := range users {
+			emailVars := map[string]string{
+				"username":     user.GetUsername(),
+				"tenant_name":  tenant.GetName(),
+				"welcome_page": h.cfg.WebPages.WelcomePage,
+			}
+
+			var content bytes.Buffer
+			if err := welcomeEmailTmpl.Execute(&content, emailVars); err != nil {
+				log.Ctx(ctx).Error().Msgf("build email template failed: %v, tenant: %v, user: %v", err,
+					tenant.GetName(), user.GetUsername())
+				continue
+			}
+
+			sendEmailReq := &dep.SendSmtpEmail{
+				From: &dep.Sender{
+					Email: h.cfg.InternalSender,
+				},
+				To: []*dep.Receiver{
+					{Email: user.GetEmail()},
+				},
+				Subject:     "Welcome to Mirror!",
+				HtmlContent: string(content.Bytes()),
+			}
+			if err := h.emailService.SendEmail(ctx, sendEmailReq); err != nil {
+				log.Ctx(ctx).Error().Msgf("send email failed: %v, tenant: %v, user: %v", err,
+					tenant.GetName(), user.GetUsername())
+				continue
+			}
+		}
+	}()
 
 	return nil
 }

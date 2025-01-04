@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/mail"
 	"regexp"
 )
 
@@ -80,7 +81,12 @@ func EmailValidator(optional bool) validator.Validator {
 		Optional:  optional,
 		UnsetZero: true,
 		MaxLen:    254,
-		Regex:     regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`),
+		Validators: []validator.StringFunc{
+			func(s string) error {
+				_, err := mail.ParseAddress(s)
+				return err
+			},
+		},
 	}
 }
 
