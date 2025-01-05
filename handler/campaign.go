@@ -9,7 +9,6 @@ import (
 	"cdp/pkg/validator"
 	"cdp/repo"
 	"context"
-	"encoding/base64"
 	"errors"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
@@ -225,13 +224,13 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 					return err
 				}
 
-				var decodedHtml []byte
-				decodedHtml, err = base64.StdEncoding.DecodeString(getEmailRes.Email.GetHtml())
+				var decodedHtml string
+				decodedHtml, err = goutil.Base64Decode(getEmailRes.Email.GetHtml())
 				if err != nil {
 					log.Ctx(ctx).Error().Msgf("decode email failed: %v, campaign_email_id: %v", err, campaignEmail.GetID())
 					return err
 				}
-				htmls = append(htmls, string(decodedHtml))
+				htmls = append(htmls, decodedHtml)
 			}
 
 			// send out emails by buckets

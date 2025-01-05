@@ -10,17 +10,17 @@ var (
 	//go:embed template/*
 	content embed.FS
 
-	welcomeEmailTmpl *template.Template
+	initUserTmpl *template.Template
 )
 
 func init() {
-	b, err := content.ReadFile("template/welcome.html")
+	b, err := content.ReadFile("template/init_user.html")
 	if err != nil {
-		panic(fmt.Errorf("read template welcome.html: %v", err))
+		panic(fmt.Errorf("read template init_user.html: %v", err))
 	}
 
-	welcomeEmailTmpl, err = template.New("welcome_email").Parse(string(b))
+	initUserTmpl, err = template.New("init_user").Parse(string(b))
 	if err != nil {
-		panic(fmt.Errorf("parse template welcome.html: %v", err))
+		panic(fmt.Errorf("parse template init_user.html: %v", err))
 	}
 }

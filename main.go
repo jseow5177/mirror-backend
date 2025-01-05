@@ -31,6 +31,7 @@ type server struct {
 	cfg *config.Config
 
 	// repos
+	baseRepo          repo.BaseRepo
 	tagRepo           repo.TagRepo
 	segmentRepo       repo.SegmentRepo
 	fileRepo          repo.FileRepo
@@ -43,6 +44,7 @@ type server struct {
 	campaignLogRepo   repo.CampaignLogRepo
 	tenantRepo        repo.TenantRepo
 	userRepo          repo.UserRepo
+	activationRepo    repo.ActivationRepo
 
 	// services
 	emailService dep.EmailService
@@ -105,6 +107,21 @@ func (s *server) Start() error {
 	}
 
 	// ===== init repos =====
+
+	// base repo
+	s.baseRepo, err = repo.NewBaseRepo(s.ctx, s.cfg.MetadataDB)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init base repo failed, err: %v", err)
+		return err
+	}
+	defer func() {
+		if err != nil && s.baseRepo != nil {
+			if err := s.baseRepo.Close(s.ctx); err != nil {
+				log.Ctx(s.ctx).Error().Msgf("close base repo failed, err: %v", err)
+				return
+			}
+		}
+	}()
 
 	// tag repo
 	s.tagRepo, err = repo.NewTagRepo(s.ctx, s.cfg.MetadataDB)
@@ -251,30 +268,13 @@ func (s *server) Start() error {
 	}()
 
 	// tenant repo
-	s.tenantRepo, err = repo.NewTenantRepo(s.ctx, s.cfg.MetadataDB)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init tenant repo failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.tenantRepo != nil {
-			log.Ctx(s.ctx).Error().Msgf("close tenant repo failed, err: %v", err)
-			return
-		}
-	}()
+	s.tenantRepo = repo.NewTenantRepo(s.ctx, s.baseRepo)
 
 	// user repo
-	s.userRepo, err = repo.NewUserRepo(s.ctx, s.cfg.MetadataDB)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init user repo failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.userRepo != nil {
-			log.Ctx(s.ctx).Error().Msgf("close user repo failed, err: %v", err)
-			return
-		}
-	}()
+	s.userRepo = repo.NewUserRepo(s.ctx, s.baseRepo)
+
+	// activation repo
+	s.activationRepo = repo.NewActivationRepo(s.ctx, s.baseRepo)
 
 	// ===== init deps ===== //
 
@@ -300,8 +300,8 @@ func (s *server) Start() error {
 	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
 	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailHandler, s.emailService, s.segmentHandler, s.campaignEmailRepo, s.campaignLogRepo)
-	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.tenantRepo, s.userRepo, s.emailService)
-	s.userHandler = handler.NewUserHandler(s.userRepo)
+	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.userRepo, s.activationRepo, s.emailService)
+	s.userHandler = handler.NewUserHandler(s.userRepo, s.tenantRepo)
 
 	// ===== start server ===== //
 
@@ -327,6 +327,13 @@ func (s *server) Start() error {
 }
 
 func (s *server) Stop() error {
+	if s.baseRepo != nil {
+		if err := s.baseRepo.Close(s.ctx); err != nil {
+			log.Ctx(s.ctx).Error().Msgf("close base repo failed, err: %v", err)
+			return err
+		}
+	}
+
 	if s.tagRepo != nil {
 		if err := s.tagRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close tag repo failed, err: %v", err)
@@ -386,13 +393,6 @@ func (s *server) Stop() error {
 	if s.campaignLogRepo != nil {
 		if err := s.campaignLogRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close campaign log repo failed, err: %v", err)
-			return err
-		}
-	}
-
-	if s.tenantRepo != nil {
-		if err := s.tenantRepo.Close(s.ctx); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close tenant repo failed, err: %v", err)
 			return err
 		}
 	}
@@ -723,6 +723,19 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.InitTenantResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.tenantHandler.InitTenant(ctx, req.(*handler.InitTenantRequest), res.(*handler.InitTenantResponse))
+			},
+		},
+	})
+
+	// is_tenant_pending_activation
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathIsTenantPendingActivation,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.IsTenantPendingActivationRequest),
+			Res: new(handler.IsTenantPendingActivationResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tenantHandler.IsTenantPendingActivation(ctx, req.(*handler.IsTenantPendingActivationRequest), res.(*handler.IsTenantPendingActivationResponse))
 			},
 		},
 	})

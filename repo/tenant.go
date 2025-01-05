@@ -1,13 +1,11 @@
 package repo
 
 import (
-	"cdp/config"
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
 	"context"
 	"errors"
-	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -42,37 +40,54 @@ func (m *Tenant) GetStatus() uint32 {
 }
 
 type TenantRepo interface {
-	Get(ctx context.Context, f *Filter) (*entity.Tenant, error)
 	Create(ctx context.Context, tenant *entity.Tenant) (uint64, error)
 	Update(ctx context.Context, tenant *entity.Tenant) error
-	Close(ctx context.Context) error
+	GetByName(ctx context.Context, tenantName string) (*entity.Tenant, error)
+	GetByID(ctx context.Context, tenantID uint64) (*entity.Tenant, error)
 }
 
 type tenantRepo struct {
-	orm *gorm.DB
+	baseRepo BaseRepo
 }
 
-func NewTenantRepo(_ context.Context, mysqlCfg config.MySQL) (TenantRepo, error) {
-	orm, err := gorm.Open(mysql.Open(mysqlCfg.ToDSN()), &gorm.Config{})
-	if err != nil {
-		return nil, err
-	}
-	return &tenantRepo{orm: orm}, nil
+func NewTenantRepo(_ context.Context, baseRepo BaseRepo) TenantRepo {
+	return &tenantRepo{baseRepo: baseRepo}
 }
 
-func (r *tenantRepo) Update(_ context.Context, tenant *entity.Tenant) error {
-	if err := r.orm.Updates(ToTenantModel(tenant)).Error; err != nil {
+func (r *tenantRepo) Update(ctx context.Context, tenant *entity.Tenant) error {
+	if err := r.baseRepo.Update(ctx, ToTenantModel(tenant)); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (r *tenantRepo) Get(_ context.Context, f *Filter) (*entity.Tenant, error) {
-	sql, args := ToSqlWithArgs(f)
+func (r *tenantRepo) GetByName(ctx context.Context, tenantName string) (*entity.Tenant, error) {
+	return r.get(ctx, []*Condition{
+		{
+			Field: "name",
+			Value: tenantName,
+			Op:    OpEq,
+		},
+	})
+}
+
+func (r *tenantRepo) GetByID(ctx context.Context, tenantID uint64) (*entity.Tenant, error) {
+	return r.get(ctx, []*Condition{
+		{
+			Field: "id",
+			Value: tenantID,
+			Op:    OpEq,
+		},
+	})
+}
+
+func (r *tenantRepo) get(ctx context.Context, conditions []*Condition) (*entity.Tenant, error) {
 	tenant := new(Tenant)
 
-	if err := r.orm.Where(sql, args...).First(tenant).Error; err != nil {
+	if err := r.baseRepo.Get(ctx, tenant, &Filter{
+		Conditions: r.baseRepo.BuildConditions(r.getBaseConditions(), conditions),
+	}); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrTenantNotFound
 		}
@@ -82,29 +97,25 @@ func (r *tenantRepo) Get(_ context.Context, f *Filter) (*entity.Tenant, error) {
 	return ToTenant(tenant), nil
 }
 
-func (r *tenantRepo) Create(_ context.Context, tenant *entity.Tenant) (uint64, error) {
+func (r *tenantRepo) getBaseConditions() []*Condition {
+	return []*Condition{
+		{
+			Field:         "status",
+			Value:         entity.TenantStatusDeleted,
+			Op:            OpNotEq,
+			NextLogicalOp: LogicalOpAnd,
+		},
+	}
+}
+
+func (r *tenantRepo) Create(ctx context.Context, tenant *entity.Tenant) (uint64, error) {
 	tenantModel := ToTenantModel(tenant)
 
-	if err := r.orm.Create(tenantModel).Error; err != nil {
+	if err := r.baseRepo.Create(ctx, tenantModel); err != nil {
 		return 0, err
 	}
 
 	return tenantModel.GetID(), nil
-}
-
-func (r *tenantRepo) Close(_ context.Context) error {
-	if r.orm != nil {
-		sqlDB, err := r.orm.DB()
-		if err != nil {
-			return err
-		}
-
-		err = sqlDB.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func ToTenant(tenant *Tenant) *entity.Tenant {

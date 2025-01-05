@@ -1,13 +1,11 @@
 package repo
 
 import (
-	"cdp/config"
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
 	"context"
 	"errors"
-	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -46,29 +44,41 @@ func (m *User) GetStatus() uint32 {
 }
 
 type UserRepo interface {
-	Get(ctx context.Context, f *Filter) (*entity.User, error)
 	Create(ctx context.Context, user *entity.User) (uint64, error)
-	BatchCreate(_ context.Context, users []*entity.User) ([]uint64, error)
-	Close(ctx context.Context) error
+	CreateMany(ctx context.Context, users []*entity.User) ([]uint64, error)
+	GetByEmail(ctx context.Context, tenantID uint64, email string) (*entity.User, error)
 }
 
 type userRepo struct {
-	orm *gorm.DB
+	baseRepo BaseRepo
 }
 
-func NewUserRepo(_ context.Context, mysqlCfg config.MySQL) (UserRepo, error) {
-	orm, err := gorm.Open(mysql.Open(mysqlCfg.ToDSN()), &gorm.Config{})
-	if err != nil {
-		return nil, err
-	}
-	return &userRepo{orm: orm}, nil
+func NewUserRepo(_ context.Context, baseRepo BaseRepo) UserRepo {
+	return &userRepo{baseRepo: baseRepo}
 }
 
-func (r *userRepo) Get(_ context.Context, f *Filter) (*entity.User, error) {
-	sql, args := ToSqlWithArgs(f)
+func (r *userRepo) GetByEmail(ctx context.Context, tenantID uint64, email string) (*entity.User, error) {
+	return r.get(ctx, []*Condition{
+		{
+			Field:         "email",
+			Value:         email,
+			Op:            OpEq,
+			NextLogicalOp: LogicalOpAnd,
+		},
+		{
+			Field: "tenant_id",
+			Value: tenantID,
+			Op:    OpEq,
+		},
+	})
+}
+
+func (r *userRepo) get(ctx context.Context, conditions []*Condition) (*entity.User, error) {
 	user := new(User)
 
-	if err := r.orm.Where(sql, args...).First(user).Error; err != nil {
+	if err := r.baseRepo.Get(ctx, user, &Filter{
+		Conditions: r.baseRepo.BuildConditions(r.getBaseConditions(), conditions),
+	}); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUserNotFound
 		}
@@ -78,23 +88,34 @@ func (r *userRepo) Get(_ context.Context, f *Filter) (*entity.User, error) {
 	return ToUser(user), nil
 }
 
-func (r *userRepo) Create(_ context.Context, user *entity.User) (uint64, error) {
+func (r *userRepo) getBaseConditions() []*Condition {
+	return []*Condition{
+		{
+			Field:         "status",
+			Value:         entity.UserStatusDeleted,
+			Op:            OpNotEq,
+			NextLogicalOp: LogicalOpAnd,
+		},
+	}
+}
+
+func (r *userRepo) Create(ctx context.Context, user *entity.User) (uint64, error) {
 	userModel := ToUserModel(user)
 
-	if err := r.orm.Create(userModel).Error; err != nil {
+	if err := r.baseRepo.Create(ctx, userModel); err != nil {
 		return 0, err
 	}
 
 	return userModel.GetID(), nil
 }
 
-func (r *userRepo) BatchCreate(_ context.Context, users []*entity.User) ([]uint64, error) {
-	userModels := make([]*User, 0)
+func (r *userRepo) CreateMany(ctx context.Context, users []*entity.User) ([]uint64, error) {
+	userModels := make([]*User, 0, len(users))
 	for _, user := range users {
 		userModels = append(userModels, ToUserModel(user))
 	}
 
-	if err := r.orm.Create(userModels).Error; err != nil {
+	if err := r.baseRepo.CreateMany(ctx, new(User), userModels); err != nil {
 		return nil, err
 	}
 
@@ -104,21 +125,6 @@ func (r *userRepo) BatchCreate(_ context.Context, users []*entity.User) ([]uint6
 	}
 
 	return userIDs, nil
-}
-
-func (r *userRepo) Close(_ context.Context) error {
-	if r.orm != nil {
-		sqlDB, err := r.orm.DB()
-		if err != nil {
-			return err
-		}
-
-		err = sqlDB.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func ToUser(user *User) *entity.User {

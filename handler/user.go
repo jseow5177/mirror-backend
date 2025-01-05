@@ -7,6 +7,7 @@ import (
 	"cdp/pkg/validator"
 	"cdp/repo"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/rs/zerolog/log"
 	"strings"
@@ -15,17 +16,46 @@ import (
 
 type UserHandler interface {
 	CreateUser(ctx context.Context, req *CreateUserRequest, res *CreateUserResponse) error
-	CreateUsers(ctx context.Context, req *CreateUsersRequest, res *CreateUsersResponse) error
 }
 
 type userHandler struct {
-	userRepo repo.UserRepo
+	userRepo   repo.UserRepo
+	tenantRepo repo.TenantRepo
 }
 
-func NewUserHandler(userRepo repo.UserRepo) UserHandler {
+func NewUserHandler(userRepo repo.UserRepo, tenantRepo repo.TenantRepo) UserHandler {
 	return &userHandler{
-		userRepo: userRepo,
+		userRepo:   userRepo,
+		tenantRepo: tenantRepo,
 	}
+}
+
+type IsUserPendingInitRequest struct {
+	UserID *uint64 `json:"user_id,omitempty"`
+}
+
+type IsUserPendingInitResponse struct {
+	IsPendingInit *bool `json:"is_pending_init,omitempty"`
+}
+
+var IsUserPendingInitValidator = validator.MustForm(map[string]validator.Validator{
+	"user_id": &validator.UInt64{},
+})
+
+func (h *userHandler) IsUserPendingInit(ctx context.Context, req *IsUserPendingInitRequest, res *IsUserPendingInitResponse) error {
+	if err := IsUserPendingInitValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	return nil
+}
+
+type InitUserRequest struct {
+	Password *string `json:"password,omitempty"`
+}
+
+type InitUserResponse struct {
+	User *entity.User `json:"user,omitempty"`
 }
 
 type CreateUserRequest struct {
@@ -35,13 +65,27 @@ type CreateUserRequest struct {
 	Password    *string `json:"password,omitempty"`
 }
 
-func GetCreateUserValidator(optionalPassword bool) validator.Validator {
+type CreateUserOptionalFields struct {
+	TenantID bool
+	Password bool
+}
+
+func GetCreateUserValidator(opt CreateUserOptionalFields) validator.Validator {
 	return validator.MustForm(map[string]validator.Validator{
-		"tenant_id":    &validator.UInt64{},
+		"tenant_id": &validator.UInt64{
+			Optional: opt.TenantID,
+		},
 		"email":        EmailValidator(false),
 		"display_name": DisplayNameValidator(true),
-		"password":     PasswordValidator(optionalPassword),
+		"password":     PasswordValidator(opt.Password),
 	})
+}
+
+func (r *CreateUserRequest) GetTenantID() uint64 {
+	if r != nil && r.TenantID != nil {
+		return *r.TenantID
+	}
+	return 0
 }
 
 func (r *CreateUserRequest) GetEmail() string {
@@ -112,11 +156,31 @@ type CreateUserResponse struct {
 }
 
 func (h *userHandler) CreateUser(ctx context.Context, req *CreateUserRequest, res *CreateUserResponse) error {
-	if err := GetCreateUserValidator(false).Validate(req); err != nil {
+	if err := GetCreateUserValidator(CreateUserOptionalFields{}).Validate(req); err != nil {
 		return errutil.ValidationError(err)
 	}
 
-	user, err := req.ToUser()
+	tenant, err := h.tenantRepo.GetByID(ctx, req.GetTenantID())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get tenant error: %v", err)
+		return err
+	}
+
+	if !tenant.IsNormal() {
+		return errutil.ValidationError(errors.New("tenant is not status normal"))
+	}
+
+	user, err := h.userRepo.GetByEmail(ctx, req.GetTenantID(), req.GetEmail())
+	if err == nil {
+		return errutil.ConflictError(errors.New("user already exists"))
+	}
+
+	if !errors.Is(err, repo.ErrUserNotFound) {
+		log.Ctx(ctx).Error().Msgf("get user error: %v", err)
+		return err
+	}
+
+	user, err = req.ToUser()
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("failed to convert to user: %v", err)
 		return err
@@ -130,50 +194,6 @@ func (h *userHandler) CreateUser(ctx context.Context, req *CreateUserRequest, re
 
 	user.ID = goutil.Uint64(id)
 	res.User = user
-
-	return nil
-}
-
-type CreateUsersRequest struct {
-	Users []*CreateUserRequest `json:"users,omitempty"`
-}
-
-type CreateUsersResponse struct {
-	Users []*entity.User `json:"users,omitempty"`
-}
-
-var CreateUsersValidator = validator.MustForm(map[string]validator.Validator{
-	"users": &validator.Slice{
-		Validator: GetCreateUserValidator(false),
-	},
-})
-
-func (h *userHandler) CreateUsers(ctx context.Context, req *CreateUsersRequest, res *CreateUsersResponse) error {
-	if err := CreateUsersValidator.Validate(req); err != nil {
-		return errutil.ValidationError(err)
-	}
-
-	users := make([]*entity.User, 0, len(req.Users))
-	for i, r := range req.Users {
-		u, err := r.ToUser()
-		if err != nil {
-			log.Ctx(ctx).Error().Msgf("failed to convert to user: %v, i: %v", err, i)
-			return err
-		}
-		users = append(users, u)
-	}
-
-	userIDs, err := h.userRepo.BatchCreate(ctx, users)
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("failed to create users: %v", err)
-		return err
-	}
-
-	for i, id := range userIDs {
-		users[i].ID = goutil.Uint64(id)
-	}
-
-	res.Users = users
 
 	return nil
 }

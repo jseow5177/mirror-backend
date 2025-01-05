@@ -14,6 +14,7 @@ require (
 	github.com/gorilla/schema v1.4.1
 	github.com/rs/cors v1.11.1
 	github.com/rs/zerolog v1.33.0
+	golang.org/x/crypto v0.31.0
 	golang.org/x/sync v0.7.0
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.10
@@ -53,7 +54,6 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	go.opentelemetry.io/otel v1.28.0 // indirect
 	go.opentelemetry.io/otel/trace v1.28.0 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/net v0.31.0 // indirect
 	golang.org/x/oauth2 v0.21.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect

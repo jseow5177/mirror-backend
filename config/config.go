@@ -14,13 +14,18 @@ type Config struct {
 	QueryDB        ClickHouse `json:"query_db"`
 	FileStore      S3         `json:"file_store"`
 	SMTP           SMTP       `json:"smtp"`
-	WebPages       WebPages   `json:"web_pages"`
+	WebPage        WebPage    `json:"web_page"`
 	InternalSender string     `json:"internal_sender"`
 	TestEmails     []string   `json:"test_emails"`
 }
 
-type WebPages struct {
-	WelcomePage string `json:"welcome_page"`
+type WebPage struct {
+	Domain string `json:"domain"`
+	Paths  Paths  `json:"paths"`
+}
+
+type Paths struct {
+	InitUser string `json:"init_user"`
 }
 
 type SMTP struct {
@@ -103,8 +108,11 @@ func NewConfig() *Config {
 			APIKey:   "",
 		},
 		InternalSender: "",
-		WebPages: WebPages{
-			WelcomePage: "",
+		WebPage: WebPage{
+			Domain: "http://localhost:3000",
+			Paths: Paths{
+				InitUser: "/init_user?token=%s",
+			},
 		},
 		TestEmails: []string{},
 	}

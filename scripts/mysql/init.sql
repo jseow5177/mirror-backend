@@ -115,18 +115,30 @@ CREATE TABLE IF NOT EXISTS user_tab (
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_tenant_id_email_status` (`tenant_id`, `email`, `status`),
     UNIQUE KEY `idx_tenant_id_username_status` (`tenant_id`, `username`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS activation_tab (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `token_hash` VARCHAR(128) NOT NULL,
+    `token_type` TINYINT UNSIGNED NOT NULL,
+    `target_id` BIGINT UNSIGNED NOT NULL,
+    `expire_time` BIGINT UNSIGNED NOT NULL,
+    `create_time` BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_token_hash_token_type` (`token_hash`, `token_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS session_tab (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `user_id` BIGINT UNSIGNED NOT NULL,
-    `token` VARCHAR(128) NOT NULL,
-    `status` TINYINT UNSIGNED NOT NULL,
+    `token_hash` VARCHAR(128) NOT NULL,
+    `token_type` TINYINT UNSIGNED NOT NULL,
     `expire_time` BIGINT UNSIGNED NOT NULL,
     `create_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_token_status` ('token', 'status')
+    UNIQUE KEY `idx_token_status` (`token_hash`, `token_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE DATABASE IF NOT EXISTS mapping_id_db;

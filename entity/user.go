@@ -21,6 +21,13 @@ type User struct {
 	UpdateTime  *uint64    `json:"update_time,omitempty"`
 }
 
+func (e *User) GetID() uint64 {
+	if e != nil && e.ID != nil {
+		return *e.ID
+	}
+	return 0
+}
+
 func (e *User) GetStatus() UserStatus {
 	if e != nil {
 		return e.Status
