@@ -46,6 +46,8 @@ func (m *User) GetStatus() uint32 {
 type UserRepo interface {
 	Create(ctx context.Context, user *entity.User) (uint64, error)
 	CreateMany(ctx context.Context, users []*entity.User) ([]uint64, error)
+	Update(ctx context.Context, user *entity.User) error
+	GetByID(ctx context.Context, userID uint64) (*entity.User, error)
 	GetByEmail(ctx context.Context, tenantID uint64, email string) (*entity.User, error)
 }
 
@@ -55,6 +57,16 @@ type userRepo struct {
 
 func NewUserRepo(_ context.Context, baseRepo BaseRepo) UserRepo {
 	return &userRepo{baseRepo: baseRepo}
+}
+
+func (r *userRepo) GetByID(ctx context.Context, userID uint64) (*entity.User, error) {
+	return r.get(ctx, []*Condition{
+		{
+			Field: "id",
+			Value: userID,
+			Op:    OpEq,
+		},
+	})
 }
 
 func (r *userRepo) GetByEmail(ctx context.Context, tenantID uint64, email string) (*entity.User, error) {
@@ -107,6 +119,14 @@ func (r *userRepo) Create(ctx context.Context, user *entity.User) (uint64, error
 	}
 
 	return userModel.GetID(), nil
+}
+
+func (r *userRepo) Update(ctx context.Context, user *entity.User) error {
+	if err := r.baseRepo.Update(ctx, ToUserModel(user)); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (r *userRepo) CreateMany(ctx context.Context, users []*entity.User) ([]uint64, error) {

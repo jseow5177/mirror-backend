@@ -14,14 +14,13 @@ import (
 	"fmt"
 	"github.com/rs/zerolog/log"
 	"path"
-	"time"
 )
 
 type TenantHandler interface {
 	CreateTenant(ctx context.Context, req *CreateTenantRequest, res *CreateTenantResponse) error
 	GetTenant(ctx context.Context, req *GetTenantRequest, res *GetTenantResponse) error
 	InitTenant(ctx context.Context, req *InitTenantRequest, res *InitTenantResponse) error
-	IsTenantPendingActivation(ctx context.Context, req *IsTenantPendingActivationRequest, res *IsTenantPendingActivationResponse) error
+	IsTenantPendingInit(ctx context.Context, req *IsTenantPendingInitRequest, res *IsTenantPendingInitResponse) error
 }
 
 type tenantHandler struct {
@@ -63,13 +62,7 @@ func (r *CreateTenantRequest) GetName() string {
 }
 
 func (r *CreateTenantRequest) ToTenant() *entity.Tenant {
-	now := time.Now()
-	return &entity.Tenant{
-		Name:       r.Name,
-		Status:     entity.TenantStatusPending,
-		CreateTime: goutil.Uint64(uint64(now.Unix())),
-		UpdateTime: goutil.Uint64(uint64(now.Unix())),
-	}
+	return entity.NewTenant(r.GetName(), entity.TenantStatusPending)
 }
 
 type CreateTenantResponse struct {
@@ -118,7 +111,7 @@ func (h *tenantHandler) CreateTenant(ctx context.Context, req *CreateTenantReque
 
 		tenant.ID = goutil.Uint64(id)
 		res.Tenant = tenant
-		res.Token = goutil.String(act.ToEncodedToken())
+		res.Token = act.Token
 
 		return nil
 	}); err != nil {
@@ -163,35 +156,35 @@ func (h *tenantHandler) GetTenant(ctx context.Context, req *GetTenantRequest, re
 	return nil
 }
 
-type IsTenantPendingActivationRequest struct {
+type IsTenantPendingInitRequest struct {
 	Token *string `json:"token,omitempty"`
 }
 
-func (r *IsTenantPendingActivationRequest) GetToken() string {
+func (r *IsTenantPendingInitRequest) GetToken() string {
 	if r != nil && r.Token != nil {
 		return *r.Token
 	}
 	return ""
 }
 
-type IsTenantPendingActivationResponse struct {
+type IsTenantPendingInitResponse struct {
 	IsPending *bool          `json:"is_pending,omitempty"`
 	Tenant    *entity.Tenant `json:"tenant,omitempty"`
 }
 
-func (r *IsTenantPendingActivationResponse) GetIsPending() bool {
+func (r *IsTenantPendingInitResponse) GetIsPending() bool {
 	if r != nil && r.IsPending != nil {
 		return *r.IsPending
 	}
 	return false
 }
 
-var IsTenantPendingActivationValidator = validator.MustForm(map[string]validator.Validator{
+var IsTenantPendingInitValidator = validator.MustForm(map[string]validator.Validator{
 	"token": &validator.String{},
 })
 
-func (h *tenantHandler) IsTenantPendingActivation(ctx context.Context, req *IsTenantPendingActivationRequest, res *IsTenantPendingActivationResponse) error {
-	if err := IsTenantPendingActivationValidator.Validate(req); err != nil {
+func (h *tenantHandler) IsTenantPendingInit(ctx context.Context, req *IsTenantPendingInitRequest, res *IsTenantPendingInitResponse) error {
+	if err := IsTenantPendingInitValidator.Validate(req); err != nil {
 		return errutil.ValidationError(err)
 	}
 
@@ -230,19 +223,19 @@ type InitTenantRequest struct {
 func (r *InitTenantRequest) ToUsers(tenantID uint64) ([]*entity.User, error) {
 	users := make([]*entity.User, 0, len(r.OtherUsers))
 
+	r.User.TenantID = goutil.Uint64(tenantID)
 	firstUser, err := r.User.ToUser()
 	if err != nil {
 		return nil, err
 	}
-	firstUser.TenantID = goutil.Uint64(tenantID)
 	users = append(users, firstUser)
 
 	for _, u := range r.OtherUsers {
+		u.TenantID = goutil.Uint64(tenantID)
 		otherUser, err := u.ToUser()
 		if err != nil {
 			return nil, err
 		}
-		otherUser.TenantID = goutil.Uint64(tenantID)
 		users = append(users, otherUser)
 	}
 
@@ -271,7 +264,8 @@ func (r *InitTenantRequest) GetToken() string {
 }
 
 type InitTenantResponse struct {
-	Tenant *entity.Tenant `json:"tenant,omitempty"`
+	Tenant          *entity.Tenant       `json:"tenant,omitempty"`
+	UserActivations []*entity.Activation `json:"user_activations,omitempty"`
 }
 
 var InitTenantValidator = validator.MustForm(map[string]validator.Validator{
@@ -292,12 +286,12 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 		return errutil.ValidationError(err)
 	}
 
-	isTenantPendingActivationReq := &IsTenantPendingActivationRequest{
+	isTenantPendingActivationReq := &IsTenantPendingInitRequest{
 		Token: req.Token,
 	}
-	isTenantPendingActivationRes := new(IsTenantPendingActivationResponse)
+	isTenantPendingActivationRes := new(IsTenantPendingInitResponse)
 
-	if err := h.IsTenantPendingActivation(ctx, isTenantPendingActivationReq, isTenantPendingActivationRes); err != nil {
+	if err := h.IsTenantPendingInit(ctx, isTenantPendingActivationReq, isTenantPendingActivationRes); err != nil {
 		return err
 	}
 
@@ -312,16 +306,41 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 		return err
 	}
 
-	var userIDs []uint64
+	var (
+		acts         = make([]*entity.Activation, 0)
+		pendingUsers = make([]*entity.User, 0)
+	)
 	if err := h.txService.RunTx(ctx, func(ctx context.Context) error {
-		if userIDs, err = h.userRepo.CreateMany(ctx, users); err != nil {
+		userIDs, err := h.userRepo.CreateMany(ctx, users)
+		if err != nil {
 			log.Ctx(ctx).Error().Msgf("create users failed: %v", err)
 			return err
 		}
 
-		tenant.Update(&entity.Tenant{
-			Status: entity.TenantStatusNormal,
-		})
+		for i, u := range users {
+			if u.IsPending() {
+				act, err := entity.NewActivation(userIDs[i], entity.TokenTypeUser)
+				if err != nil {
+					log.Ctx(ctx).Error().Msgf("new activation failed: %v", err)
+					return err
+				}
+				acts = append(acts, act)
+				pendingUsers = append(pendingUsers, u)
+			}
+		}
+
+		_, err = h.activationRepo.CreateMany(ctx, acts)
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("create activations failed: %v", err)
+			return err
+		}
+
+		tenant.Update(
+			entity.NewTenant(
+				tenant.GetName(),
+				entity.TenantStatusNormal,
+			),
+		)
 
 		if err := h.tenantRepo.Update(ctx, tenant); err != nil {
 			log.Ctx(ctx).Error().Msgf("update tenant failed: %v", err)
@@ -329,6 +348,7 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 		}
 
 		res.Tenant = tenant
+		res.UserActivations = acts
 
 		return nil
 	}); err != nil {
@@ -336,16 +356,12 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 	}
 
 	go func(ctx context.Context) {
-		for i, user := range users {
-			act, err := entity.NewActivation(userIDs[i], entity.TokenTypeUser)
-			if err != nil {
-				log.Ctx(ctx).Error().Msgf("new activation failed: %v", err)
-				continue
-			}
+		for i, user := range pendingUsers {
+			act := acts[i]
 
 			initUserPage := path.Join(
 				h.cfg.WebPage.Domain,
-				fmt.Sprintf(h.cfg.WebPage.Paths.InitUser, act.ToEncodedToken()))
+				fmt.Sprintf(h.cfg.WebPage.Paths.InitUser, act.GetToken()))
 
 			emailVars := map[string]string{
 				"username":     user.GetUsername(),
@@ -360,30 +376,19 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 				continue
 			}
 
-			if err := h.txService.RunTx(ctx, func(ctx context.Context) error {
-				if _, err := h.activationRepo.Create(ctx, act); err != nil {
-					log.Ctx(ctx).Error().Msgf("create activation failed: %v", err)
-					return err
-				}
-
-				sendEmailReq := &dep.SendSmtpEmail{
-					From: &dep.Sender{
-						Email: h.cfg.InternalSender,
-					},
-					To: []*dep.Receiver{
-						{Email: user.GetEmail()},
-					},
-					Subject:     "Welcome to Mirror!",
-					HtmlContent: string(content.Bytes()),
-				}
-				if err := h.emailService.SendEmail(ctx, sendEmailReq); err != nil {
-					log.Ctx(ctx).Error().Msgf("send email failed: %v, tenant: %v, user: %v", err,
-						tenant.GetName(), user.GetUsername())
-					return err
-				}
-
-				return nil
-			}); err != nil {
+			sendEmailReq := &dep.SendSmtpEmail{
+				From: &dep.Sender{
+					Email: h.cfg.InternalSender,
+				},
+				To: []*dep.Receiver{
+					{Email: user.GetEmail()},
+				},
+				Subject:     "Welcome to Mirror!",
+				HtmlContent: string(content.Bytes()),
+			}
+			if err := h.emailService.SendEmail(ctx, sendEmailReq); err != nil {
+				log.Ctx(ctx).Error().Msgf("send email failed: %v, tenant: %v, user: %v", err,
+					tenant.GetName(), user.GetUsername())
 				continue
 			}
 		}

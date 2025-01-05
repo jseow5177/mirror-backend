@@ -11,35 +11,53 @@ import (
 	"fmt"
 	"github.com/rs/zerolog/log"
 	"strings"
-	"time"
 )
 
 type UserHandler interface {
 	CreateUser(ctx context.Context, req *CreateUserRequest, res *CreateUserResponse) error
+	IsUserPendingInit(ctx context.Context, req *IsUserPendingInitRequest, res *IsUserPendingInitResponse) error
+	InitUser(ctx context.Context, req *InitUserRequest, res *InitUserResponse) error
 }
 
 type userHandler struct {
-	userRepo   repo.UserRepo
-	tenantRepo repo.TenantRepo
+	userRepo       repo.UserRepo
+	tenantRepo     repo.TenantRepo
+	activationRepo repo.ActivationRepo
 }
 
-func NewUserHandler(userRepo repo.UserRepo, tenantRepo repo.TenantRepo) UserHandler {
+func NewUserHandler(userRepo repo.UserRepo, tenantRepo repo.TenantRepo, activationRepo repo.ActivationRepo) UserHandler {
 	return &userHandler{
-		userRepo:   userRepo,
-		tenantRepo: tenantRepo,
+		userRepo:       userRepo,
+		tenantRepo:     tenantRepo,
+		activationRepo: activationRepo,
 	}
 }
 
 type IsUserPendingInitRequest struct {
-	UserID *uint64 `json:"user_id,omitempty"`
+	Token *string `json:"token,omitempty"`
+}
+
+func (r *IsUserPendingInitRequest) GetToken() string {
+	if r != nil && r.Token != nil {
+		return *r.Token
+	}
+	return ""
 }
 
 type IsUserPendingInitResponse struct {
-	IsPendingInit *bool `json:"is_pending_init,omitempty"`
+	IsPending *bool        `json:"is_pending,omitempty"`
+	User      *entity.User `json:"user,omitempty"`
+}
+
+func (r *IsUserPendingInitResponse) GetIsPending() bool {
+	if r != nil && r.IsPending != nil {
+		return *r.IsPending
+	}
+	return false
 }
 
 var IsUserPendingInitValidator = validator.MustForm(map[string]validator.Validator{
-	"user_id": &validator.UInt64{},
+	"token": &validator.String{},
 })
 
 func (h *userHandler) IsUserPendingInit(ctx context.Context, req *IsUserPendingInitRequest, res *IsUserPendingInitResponse) error {
@@ -47,15 +65,90 @@ func (h *userHandler) IsUserPendingInit(ctx context.Context, req *IsUserPendingI
 		return errutil.ValidationError(err)
 	}
 
+	token, err := goutil.Base64Decode(req.GetToken())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("decode base64 token failed: %v", err)
+		return err
+	}
+
+	act, err := h.activationRepo.GetByTokenHash(ctx, goutil.Sha256(token), entity.TokenTypeUser)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get activation token failed: %v", err)
+		return err
+	}
+
+	userID := act.GetTargetID()
+
+	user, err := h.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get user failed: %v", err)
+		return err
+	}
+
+	res.IsPending = goutil.Bool(user.IsPending())
+	res.User = user
+
 	return nil
 }
 
 type InitUserRequest struct {
+	Token    *string `json:"token,omitempty"`
 	Password *string `json:"password,omitempty"`
+}
+
+func (r *InitUserRequest) GetPassword() string {
+	if r != nil && r.Password != nil {
+		return *r.Password
+	}
+	return ""
 }
 
 type InitUserResponse struct {
 	User *entity.User `json:"user,omitempty"`
+}
+
+var InitUserValidator = validator.MustForm(map[string]validator.Validator{
+	"token":    &validator.String{},
+	"password": &validator.String{},
+})
+
+func (h *userHandler) InitUser(ctx context.Context, req *InitUserRequest, res *InitUserResponse) error {
+	if err := InitUserValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	isUserPendingInitRequest := &IsUserPendingInitRequest{
+		Token: req.Token,
+	}
+	isUserPendingInitResponse := new(IsUserPendingInitResponse)
+
+	if err := h.IsUserPendingInit(ctx, isUserPendingInitRequest, isUserPendingInitResponse); err != nil {
+		return err
+	}
+
+	user := isUserPendingInitResponse.User
+	if !isUserPendingInitResponse.GetIsPending() {
+		return errutil.ValidationError(fmt.Errorf("user is not pending, name: %v, tenant_id: %v", user.GetUsername(), user.GetTenantID()))
+	}
+
+	newUser, err := entity.NewUser(
+		user.GetTenantID(), user.GetEmail(), req.GetPassword(), user.GetDisplayName(),
+	)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("create new user failed: %v", err)
+		return err
+	}
+
+	user.Update(newUser)
+
+	if err := h.userRepo.Update(ctx, user); err != nil {
+		log.Ctx(ctx).Error().Msgf("update user failed: %v", err)
+		return err
+	}
+
+	res.User = user
+
+	return nil
 }
 
 type CreateUserRequest struct {
@@ -110,37 +203,7 @@ func (r *CreateUserRequest) GetPassword() string {
 }
 
 func (r *CreateUserRequest) ToUser() (*entity.User, error) {
-	now := uint64(time.Now().Unix())
-
-	username, err := r.extractUsernameFromEmail()
-	if err != nil {
-		return nil, err
-	}
-
-	var (
-		password string
-		status   = entity.UserStatusPending
-	)
-	if r.GetPassword() != "" {
-		password, err = goutil.BCrypt(r.GetPassword())
-		if err != nil {
-			return nil, err
-		}
-		status = entity.UserStatusNormal
-	}
-
-	user := &entity.User{
-		TenantID:    r.TenantID,
-		Email:       r.Email,
-		Username:    goutil.String(username),
-		Password:    goutil.String(password),
-		DisplayName: goutil.String(r.GetDisplayName()),
-		Status:      status,
-		CreateTime:  goutil.Uint64(now),
-		UpdateTime:  goutil.Uint64(now),
-	}
-
-	return user, nil
+	return entity.NewUser(r.GetTenantID(), r.GetEmail(), r.GetPassword(), r.GetDisplayName())
 }
 
 func (r *CreateUserRequest) extractUsernameFromEmail() (string, error) {
@@ -156,7 +219,9 @@ type CreateUserResponse struct {
 }
 
 func (h *userHandler) CreateUser(ctx context.Context, req *CreateUserRequest, res *CreateUserResponse) error {
-	if err := GetCreateUserValidator(CreateUserOptionalFields{}).Validate(req); err != nil {
+	if err := GetCreateUserValidator(CreateUserOptionalFields{
+		Password: true,
+	}).Validate(req); err != nil {
 		return errutil.ValidationError(err)
 	}
 

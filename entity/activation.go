@@ -18,13 +18,13 @@ const (
 )
 
 type Activation struct {
-	ID         *uint64
-	Token      *string
-	TokenHash  *string
-	TargetID   *uint64
-	TokenType  TokenType
-	ExpireTime *uint64
-	CreateTime *uint64
+	ID         *uint64   `json:"id,omitempty"`
+	Token      *string   `json:"token,omitempty"`
+	TokenHash  *string   `json:"-"`
+	TargetID   *uint64   `json:"target_id,omitempty"`
+	TokenType  TokenType `json:"token_type,omitempty"`
+	ExpireTime *uint64   `json:"expire_time,omitempty"`
+	CreateTime *uint64   `json:"create_time,omitempty"`
 }
 
 func (e *Activation) GetID() uint64 {
@@ -62,10 +62,6 @@ func (e *Activation) GetTargetID() uint64 {
 	return 0
 }
 
-func (e *Activation) ToEncodedToken() string {
-	return goutil.Base64Encode(e.GetToken())
-}
-
 func NewActivation(targetID uint64, tokenType TokenType) (*Activation, error) {
 	now := uint64(time.Now().Unix())
 
@@ -76,7 +72,7 @@ func NewActivation(targetID uint64, tokenType TokenType) (*Activation, error) {
 
 	return &Activation{
 		TargetID:   goutil.Uint64(targetID),
-		Token:      goutil.String(token),
+		Token:      goutil.String(goutil.Base64Encode(token)),
 		TokenHash:  goutil.String(goutil.Sha256(token)),
 		TokenType:  tokenType,
 		CreateTime: goutil.Uint64(now),

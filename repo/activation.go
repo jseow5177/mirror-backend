@@ -42,6 +42,7 @@ func (m *Activation) GetTokenType() uint32 {
 
 type ActivationRepo interface {
 	Create(ctx context.Context, act *entity.Activation) (uint64, error)
+	CreateMany(ctx context.Context, acts []*entity.Activation) ([]uint64, error)
 	Update(ctx context.Context, act *entity.Activation) error
 	GetByTokenHash(ctx context.Context, tokenHash string, tokenType entity.TokenType) (*entity.Activation, error)
 }
@@ -98,6 +99,24 @@ func (r *activationRepo) Create(ctx context.Context, act *entity.Activation) (ui
 	}
 
 	return actModel.GetID(), nil
+}
+
+func (r *activationRepo) CreateMany(ctx context.Context, acts []*entity.Activation) ([]uint64, error) {
+	actModels := make([]*Activation, 0, len(acts))
+	for _, act := range acts {
+		actModels = append(actModels, ToActivationModel(act))
+	}
+
+	if err := r.baseRepo.CreateMany(ctx, new(Activation), actModels); err != nil {
+		return nil, err
+	}
+
+	actIDs := make([]uint64, 0, len(actModels))
+	for _, actModel := range actModels {
+		actIDs = append(actIDs, actModel.GetID())
+	}
+
+	return actIDs, nil
 }
 
 func (r *activationRepo) Update(ctx context.Context, act *entity.Activation) error {

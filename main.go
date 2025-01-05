@@ -301,7 +301,7 @@ func (s *server) Start() error {
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
 	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailHandler, s.emailService, s.segmentHandler, s.campaignEmailRepo, s.campaignLogRepo)
 	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.userRepo, s.activationRepo, s.emailService)
-	s.userHandler = handler.NewUserHandler(s.userRepo, s.tenantRepo)
+	s.userHandler = handler.NewUserHandler(s.userRepo, s.tenantRepo, s.activationRepo)
 
 	// ===== start server ===== //
 
@@ -714,6 +714,32 @@ func (s *server) registerRoutes() http.Handler {
 		},
 	})
 
+	// is_user_pending_init
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathIsUserPendingInit,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.IsUserPendingInitRequest),
+			Res: new(handler.IsUserPendingInitResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.userHandler.IsUserPendingInit(ctx, req.(*handler.IsUserPendingInitRequest), res.(*handler.IsUserPendingInitResponse))
+			},
+		},
+	})
+
+	// init_user
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathInitUser,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.InitUserRequest),
+			Res: new(handler.InitUserResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.userHandler.InitUser(ctx, req.(*handler.InitUserRequest), res.(*handler.InitUserResponse))
+			},
+		},
+	})
+
 	// init_tenant
 	r.RegisterHttpRoute(&router.HttpRoute{
 		Path:   config.PathInitTenant,
@@ -729,13 +755,13 @@ func (s *server) registerRoutes() http.Handler {
 
 	// is_tenant_pending_activation
 	r.RegisterHttpRoute(&router.HttpRoute{
-		Path:   config.PathIsTenantPendingActivation,
+		Path:   config.PathIsTenantPendingInit,
 		Method: http.MethodPost,
 		Handler: router.Handler{
-			Req: new(handler.IsTenantPendingActivationRequest),
-			Res: new(handler.IsTenantPendingActivationResponse),
+			Req: new(handler.IsTenantPendingInitRequest),
+			Res: new(handler.IsTenantPendingInitResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
-				return s.tenantHandler.IsTenantPendingActivation(ctx, req.(*handler.IsTenantPendingActivationRequest), res.(*handler.IsTenantPendingActivationResponse))
+				return s.tenantHandler.IsTenantPendingInit(ctx, req.(*handler.IsTenantPendingInitRequest), res.(*handler.IsTenantPendingInitResponse))
 			},
 		},
 	})

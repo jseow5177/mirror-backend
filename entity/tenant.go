@@ -1,5 +1,10 @@
 package entity
 
+import (
+	"cdp/pkg/goutil"
+	"time"
+)
+
 type TenantStatus uint32
 
 const (
@@ -17,12 +22,27 @@ type Tenant struct {
 	UpdateTime *uint64      `json:"update_time,omitempty"`
 }
 
+func NewTenant(name string, status TenantStatus) *Tenant {
+	now := uint64(time.Now().Unix())
+
+	return &Tenant{
+		Name:       goutil.String(name),
+		Status:     status,
+		CreateTime: goutil.Uint64(now),
+		UpdateTime: goutil.Uint64(now),
+	}
+}
+
 func (e *Tenant) Update(t *Tenant) bool {
 	var hasChange bool
 
 	if e.Status != t.Status {
 		hasChange = true
 		e.Status = t.Status
+	}
+
+	if hasChange {
+		e.UpdateTime = goutil.Uint64(uint64(time.Now().Unix()))
 	}
 
 	return hasChange
