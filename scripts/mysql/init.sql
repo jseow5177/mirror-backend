@@ -15,20 +15,23 @@ CREATE TABLE IF NOT EXISTS tag_tab (
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_tenant_id_name_status` (`tenant_id`, `name`, `status`)
+    UNIQUE KEY `idx_tenant_id_name_status` (`tenant_id`, `name`, `status`),
+    KEY `idx_tag_desc` (`tag_desc`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS segment_tab (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tenant_id` BIGINT UNSIGNED NOT NULL,
     `name` VARCHAR(64) NOT NULL,
-    `desc` VARCHAR(256) NOT NULL,
+    `segment_desc` VARCHAR(256) NOT NULL,
     `criteria` TEXT NOT NULL,
     `status` TINYINT UNSIGNED NOT NULL DEFAULT '1',
+    `creator_id` BIGINT UNSIGNED NOT NULL,
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_name` (`name`),
-    KEY `idx_name_desc_status` (`name`, `desc`, `status`)
+    UNIQUE KEY `idx_tenant_id_name_status` (`tenant_id`, `name`, `status`),
+    KEY `idx_segment_desc` (`segment_desc`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS email_tab (

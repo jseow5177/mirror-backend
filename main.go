@@ -121,19 +121,7 @@ func (s *server) Start() error {
 	}()
 
 	// segment repo
-	s.segmentRepo, err = repo.NewSegmentRepo(s.ctx, s.cfg.MetadataDB)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init segment repo failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.segmentRepo != nil {
-			if err := s.segmentRepo.Close(s.ctx); err != nil {
-				log.Ctx(s.ctx).Error().Msgf("close segment repo failed, err: %v", err)
-				return
-			}
-		}
-	}()
+	s.segmentRepo = repo.NewSegmentRepo(s.ctx, s.baseRepo)
 
 	// file repo
 	s.fileRepo = repo.NewFileRepo(s.ctx, s.cfg.FileStore)
@@ -291,13 +279,6 @@ func (s *server) Stop() error {
 		}
 	}
 
-	if s.segmentRepo != nil {
-		if err := s.segmentRepo.Close(s.ctx); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close segment repo failed, err: %v", err)
-			return err
-		}
-	}
-
 	if s.fileRepo != nil {
 		if err := s.fileRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close entity file repo failed, err: %v", err)
@@ -391,6 +372,9 @@ func (s *server) registerRoutes() http.Handler {
 				return s.segmentHandler.GetSegment(ctx, req.(*handler.GetSegmentRequest), res.(*handler.GetSegmentResponse))
 			},
 		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
 	})
 
 	// get_segments
@@ -403,6 +387,9 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.segmentHandler.GetSegments(ctx, req.(*handler.GetSegmentsRequest), res.(*handler.GetSegmentsResponse))
 			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
 		},
 	})
 
@@ -433,6 +420,9 @@ func (s *server) registerRoutes() http.Handler {
 				return s.segmentHandler.CountSegments(ctx, req.(*handler.CountSegmentsRequest), res.(*handler.CountSegmentsResponse))
 			},
 		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
 	})
 
 	// create_tag
@@ -462,6 +452,9 @@ func (s *server) registerRoutes() http.Handler {
 				return s.segmentHandler.CreateSegment(ctx, req.(*handler.CreateSegmentRequest), res.(*handler.CreateSegmentResponse))
 			},
 		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
 	})
 
 	// count_ud
@@ -475,6 +468,9 @@ func (s *server) registerRoutes() http.Handler {
 				return s.segmentHandler.CountUd(ctx, req.(*handler.CountUdRequest), res.(*handler.CountUdResponse))
 			},
 		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
 	})
 
 	// preview_ud
@@ -487,6 +483,9 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.segmentHandler.PreviewUd(ctx, req.(*handler.PreviewUdRequest), res.(*handler.PreviewUdResponse))
 			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
 		},
 	})
 

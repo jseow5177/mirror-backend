@@ -54,7 +54,7 @@ func (h *segmentHandler) CountSegments(ctx context.Context, req *CountSegmentsRe
 		return errutil.ValidationError(err)
 	}
 
-	count, err := h.segmentRepo.Count(ctx, nil)
+	count, err := h.segmentRepo.CountByTenantID(ctx, req.GetTenantID())
 	if err != nil {
 		return err
 	}
@@ -68,6 +68,13 @@ type GetSegmentRequest struct {
 	ContextInfo
 
 	SegmentID *uint64 `json:"segment_id,omitempty"`
+}
+
+func (r *GetSegmentRequest) GetSegmentID() uint64 {
+	if r != nil && r.SegmentID != nil {
+		return *r.SegmentID
+	}
+	return 0
 }
 
 type GetSegmentResponse struct {
@@ -84,9 +91,7 @@ func (h *segmentHandler) GetSegment(ctx context.Context, req *GetSegmentRequest,
 		return errutil.ValidationError(err)
 	}
 
-	segment, err := h.segmentRepo.Get(ctx, &repo.SegmentFilter{
-		ID: req.SegmentID,
-	})
+	segment, err := h.segmentRepo.GetByID(ctx, req.GetTenantID(), req.GetSegmentID())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get segment err: %v", err)
 		return err
@@ -98,19 +103,29 @@ func (h *segmentHandler) GetSegment(ctx context.Context, req *GetSegmentRequest,
 }
 
 type GetSegmentsRequest struct {
-	Name       *string            `json:"name,omitempty"`
-	Desc       *string            `json:"desc,omitempty"`
-	Pagination *entity.Pagination `json:"pagination,omitempty"`
+	ContextInfo
+
+	Keyword    *string          `json:"keyword,omitempty"`
+	Pagination *repo.Pagination `json:"pagination,omitempty"`
+}
+
+func (r *GetSegmentsRequest) GetKeyword() string {
+	if r != nil && r.Keyword != nil {
+		return *r.Keyword
+	}
+	return ""
 }
 
 type GetSegmentsResponse struct {
-	Segments   []*entity.Segment  `json:"segments"`
-	Pagination *entity.Pagination `json:"pagination,omitempty"`
+	Segments   []*entity.Segment `json:"segments"`
+	Pagination *repo.Pagination  `json:"pagination,omitempty"`
 }
 
 var GetSegmentsValidator = validator.MustForm(map[string]validator.Validator{
-	"name":       ResourceNameValidator(true),
-	"desc":       ResourceDescValidator(true),
+	"ContextInfo": ContextInfoValidator,
+	"keyword": &validator.String{
+		Optional: true,
+	},
 	"pagination": PaginationValidator(),
 })
 
@@ -120,17 +135,10 @@ func (h *segmentHandler) GetSegments(ctx context.Context, req *GetSegmentsReques
 	}
 
 	if req.Pagination == nil {
-		req.Pagination = new(entity.Pagination)
+		req.Pagination = new(repo.Pagination)
 	}
 
-	segments, pagination, err := h.segmentRepo.GetMany(ctx, &repo.SegmentFilter{
-		Name: req.Name,
-		Desc: req.Desc,
-		Pagination: &repo.Pagination{
-			Page:  req.Pagination.Page,
-			Limit: req.Pagination.Limit,
-		},
-	})
+	segments, pagination, err := h.segmentRepo.GetByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get segments failed: %v", err)
 		return err
@@ -145,9 +153,9 @@ func (h *segmentHandler) GetSegments(ctx context.Context, req *GetSegmentsReques
 type CreateSegmentRequest struct {
 	ContextInfo
 
-	Name     *string       `json:"name,omitempty"`
-	Desc     *string       `json:"desc,omitempty"`
-	Criteria *entity.Query `json:"criteria,omitempty"`
+	Name        *string       `json:"name,omitempty"`
+	SegmentDesc *string       `json:"segment_desc,omitempty"`
+	Criteria    *entity.Query `json:"criteria,omitempty"`
 }
 
 func (req *CreateSegmentRequest) ToSegment() *entity.Segment {
@@ -156,12 +164,14 @@ func (req *CreateSegmentRequest) ToSegment() *entity.Segment {
 	}
 	now := time.Now()
 	return &entity.Segment{
-		Name:       req.Name,
-		Desc:       req.Desc,
-		Criteria:   req.Criteria,
-		Status:     entity.SegmentStatusNormal,
-		CreateTime: goutil.Uint64(uint64(now.Unix())),
-		UpdateTime: goutil.Uint64(uint64(now.Unix())),
+		Name:        req.Name,
+		SegmentDesc: req.SegmentDesc,
+		Criteria:    req.Criteria,
+		Status:      entity.SegmentStatusNormal,
+		CreatorID:   req.User.ID,
+		TenantID:    req.Tenant.ID,
+		CreateTime:  goutil.Uint64(uint64(now.Unix())),
+		UpdateTime:  goutil.Uint64(uint64(now.Unix())),
 	}
 }
 
@@ -170,9 +180,9 @@ type CreateSegmentResponse struct {
 }
 
 var CreateSegmentValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
-	"name":        ResourceNameValidator(false),
-	"desc":        ResourceDescValidator(false),
+	"ContextInfo":  ContextInfoValidator,
+	"name":         ResourceNameValidator(false),
+	"segment_desc": ResourceDescValidator(false),
 })
 
 func (h *segmentHandler) CreateSegment(ctx context.Context, req *CreateSegmentRequest, res *CreateSegmentResponse) error {
@@ -187,11 +197,7 @@ func (h *segmentHandler) CreateSegment(ctx context.Context, req *CreateSegmentRe
 
 	segment := req.ToSegment()
 
-	f := &repo.SegmentFilter{
-		Name:   segment.Name,
-		Status: goutil.Uint32(uint32(entity.SegmentStatusNormal)),
-	}
-	_, err := h.segmentRepo.Get(ctx, f)
+	_, err := h.segmentRepo.GetByName(ctx, req.GetTenantID(), segment.GetName())
 	if err == nil {
 		return errutil.ConflictError(errors.New("segment already exists"))
 	}
@@ -214,6 +220,8 @@ func (h *segmentHandler) CreateSegment(ctx context.Context, req *CreateSegmentRe
 }
 
 type GetUdsRequest struct {
+	ContextInfo
+
 	SegmentID *uint64 `json:"segment_id,omitempty"`
 }
 
@@ -229,6 +237,7 @@ type GetUdsResponse struct {
 }
 
 var GetUdsValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator,
 	"segment_id": &validator.UInt64{
 		Optional: false,
 	},
@@ -239,9 +248,7 @@ func (h *segmentHandler) GetUds(ctx context.Context, req *GetUdsRequest, res *Ge
 		return errutil.ValidationError(err)
 	}
 
-	_, err := h.segmentRepo.Get(ctx, &repo.SegmentFilter{
-		ID: req.SegmentID,
-	})
+	_, err := h.segmentRepo.GetByID(ctx, req.GetTenantID(), req.GetSegmentID())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get segment failed: %v", err)
 		return err
@@ -261,6 +268,8 @@ func (h *segmentHandler) GetUds(ctx context.Context, req *GetUdsRequest, res *Ge
 }
 
 type CountUdRequest struct {
+	ContextInfo
+
 	SegmentID *uint64 `json:"segment_id,omitempty"`
 }
 
@@ -276,6 +285,7 @@ type CountUdResponse struct {
 }
 
 var CountUdValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator,
 	"segment_id": &validator.UInt64{
 		Optional: false,
 	},
@@ -286,9 +296,7 @@ func (h *segmentHandler) CountUd(ctx context.Context, req *CountUdRequest, res *
 		return errutil.ValidationError(err)
 	}
 
-	_, err := h.segmentRepo.Get(ctx, &repo.SegmentFilter{
-		ID: req.SegmentID,
-	})
+	_, err := h.segmentRepo.GetByID(ctx, req.GetTenantID(), req.GetSegmentID())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get segment failed: %v", err)
 		return err

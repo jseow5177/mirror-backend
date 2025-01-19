@@ -1,7 +1,6 @@
 package repo
 
 import (
-	"cdp/config"
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
@@ -9,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -18,13 +16,15 @@ var (
 )
 
 type Segment struct {
-	ID         *uint64
-	Name       *string
-	Desc       *string
-	Criteria   *string
-	Status     *uint32
-	CreateTime *uint64
-	UpdateTime *uint64
+	ID          *uint64
+	Name        *string
+	SegmentDesc *string
+	Criteria    *string
+	Status      *uint32
+	CreatorID   *uint64
+	TenantID    *uint64
+	CreateTime  *uint64
+	UpdateTime  *uint64
 }
 
 func (m *Segment) TableName() string {
@@ -52,166 +52,140 @@ func (m *Segment) GetStatus() uint32 {
 	return 0
 }
 
-type SegmentFilter struct {
-	ID         *uint64
-	Name       *string
-	Desc       *string
-	Status     *uint32
-	Pagination *Pagination `gorm:"-"`
-}
-
-func (f *SegmentFilter) GetName() string {
-	if f != nil && f.Name != nil {
-		return *f.Name
-	}
-	return ""
-}
-
-func (f *SegmentFilter) GetDesc() string {
-	if f != nil && f.Desc != nil {
-		return *f.Desc
-	}
-	return ""
-}
-
 type SegmentRepo interface {
-	Get(ctx context.Context, f *SegmentFilter) (*entity.Segment, error)
-	GetMany(ctx context.Context, f *SegmentFilter) ([]*entity.Segment, *entity.Pagination, error)
 	Create(ctx context.Context, segment *entity.Segment) (uint64, error)
-	Count(ctx context.Context, f *SegmentFilter) (uint64, error)
-	Close(ctx context.Context) error
+	GetByID(ctx context.Context, tenantID, segmentID uint64) (*entity.Segment, error)
+	GetByName(ctx context.Context, tenantID uint64, name string) (*entity.Segment, error)
+	GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Segment, *Pagination, error)
+	CountByTenantID(ctx context.Context, tenantID uint64) (uint64, error)
 }
 
 type segmentRepo struct {
-	orm *gorm.DB
+	baseRepo BaseRepo
 }
 
-func NewSegmentRepo(_ context.Context, mysqlCfg config.MySQL) (SegmentRepo, error) {
-	orm, err := gorm.Open(mysql.Open(mysqlCfg.ToDSN()), &gorm.Config{})
+func NewSegmentRepo(_ context.Context, baseRepo BaseRepo) SegmentRepo {
+	return &segmentRepo{baseRepo: baseRepo}
+}
+
+func (r *segmentRepo) CountByTenantID(ctx context.Context, tenantID uint64) (uint64, error) {
+	return r.count(ctx, tenantID, nil, true)
+}
+
+func (r *segmentRepo) count(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool) (uint64, error) {
+	return r.baseRepo.Count(ctx, new(Segment), &Filter{
+		Conditions: append(r.getBaseConditions(tenantID), r.mayAddDeleteFilter(conditions, filterDelete)...),
+	})
+}
+
+func (r *segmentRepo) GetByName(ctx context.Context, tenantID uint64, name string) (*entity.Segment, error) {
+	return r.get(ctx, tenantID, []*Condition{
+		{
+			Field: "name",
+			Value: name,
+			Op:    OpEq,
+		},
+	}, true)
+}
+
+func (r *segmentRepo) GetByID(ctx context.Context, tenantID, segmentID uint64) (*entity.Segment, error) {
+	return r.get(ctx, tenantID, []*Condition{
+		{
+			Field: "id",
+			Value: segmentID,
+			Op:    OpEq,
+		},
+	}, true)
+}
+
+func (r *segmentRepo) GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Segment, *Pagination, error) {
+	return r.getMany(ctx, tenantID, []*Condition{
+		{
+			Field:         "LOWER(name)",
+			Value:         fmt.Sprintf("%%%s%%", keyword),
+			Op:            OpLike,
+			NextLogicalOp: LogicalOpOr,
+			OpenBracket:   true,
+		},
+		{
+			Field:        "LOWER(segment_desc)",
+			Value:        fmt.Sprintf("%%%s%%", keyword),
+			Op:           OpLike,
+			CloseBracket: true,
+		},
+	}, true, p)
+}
+
+func (r *segmentRepo) getMany(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool, p *Pagination) ([]*entity.Segment, *Pagination, error) {
+	res, pNew, err := r.baseRepo.GetMany(ctx, new(Segment), &Filter{
+		Conditions: append(r.getBaseConditions(tenantID), r.mayAddDeleteFilter(conditions, filterDelete)...),
+		Pagination: p,
+	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &segmentRepo{orm: orm}, nil
+
+	segments := make([]*entity.Segment, 0, len(res))
+	for _, m := range res {
+		segment, err := ToSegment(m.(*Segment))
+		if err != nil {
+			return nil, nil, err
+		}
+		segments = append(segments, segment)
+	}
+
+	return segments, pNew, nil
 }
 
-func (r *segmentRepo) Get(_ context.Context, f *SegmentFilter) (*entity.Segment, error) {
+func (r *segmentRepo) get(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool) (*entity.Segment, error) {
 	segment := new(Segment)
-	if err := r.orm.Where(f).First(segment).Error; err != nil {
+
+	if err := r.baseRepo.Get(ctx, segment, &Filter{
+		Conditions: append(r.getBaseConditions(tenantID), r.mayAddDeleteFilter(conditions, filterDelete)...),
+	}); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrSegmentNotFound
 		}
 		return nil, err
 	}
+
 	return ToSegment(segment)
 }
 
-func (r *segmentRepo) Count(_ context.Context, _ *SegmentFilter) (uint64, error) {
-	var count int64
-	if err := r.orm.Model(&Segment{}).Where("status != ?", entity.SegmentStatusDeleted).Count(&count).Error; err != nil {
-		return 0, err
+func (r *segmentRepo) mayAddDeleteFilter(conditions []*Condition, filterDelete bool) []*Condition {
+	if filterDelete {
+		return append(conditions, &Condition{
+			Field: "status",
+			Value: entity.SegmentStatusDeleted,
+			Op:    OpNotEq,
+		})
+
 	}
-	return uint64(count), nil
+	return conditions
 }
 
-func (r *segmentRepo) GetMany(_ context.Context, f *SegmentFilter) ([]*entity.Segment, *entity.Pagination, error) {
-	var (
-		cond string
-		args = make([]interface{}, 0)
-	)
-	if f.Name != nil {
-		cond += "LOWER(name) LIKE ?"
-		args = append(args, fmt.Sprintf("%%%s%%", f.GetName()))
+func (r *segmentRepo) getBaseConditions(tenantID uint64) []*Condition {
+	return []*Condition{
+		{
+			Field:         "tenant_id",
+			Value:         tenantID,
+			Op:            OpEq,
+			NextLogicalOp: LogicalOpAnd,
+		},
 	}
-
-	if f.Desc != nil {
-		if cond != "" {
-			cond += " OR "
-		}
-		cond += "LOWER(`desc`) LIKE ?"
-		args = append(args, fmt.Sprintf("%%%s%%", f.GetDesc()))
-	}
-
-	if cond != "" {
-		cond += " AND "
-	}
-	cond += "status != ?"
-	args = append(args, entity.SegmentStatusDeleted)
-
-	var count int64
-	if err := r.orm.Model(new(Segment)).Where(cond, args...).Count(&count).Error; err != nil {
-		return nil, nil, err
-	}
-
-	var (
-		limit = f.Pagination.GetLimit()
-		page  = f.Pagination.GetPage()
-	)
-	if page == 0 {
-		page = 1
-	}
-
-	var (
-		offset    = (page - 1) * limit
-		mSegments = make([]*Segment, 0)
-	)
-	query := r.orm.Where(cond, args...).Offset(int(offset))
-	if limit > 0 {
-		query = query.Limit(int(limit + 1))
-	}
-
-	if err := query.Find(&mSegments).Error; err != nil {
-		return nil, nil, err
-	}
-
-	var hasNext bool
-	if limit > 0 && len(mSegments) > int(limit) {
-		hasNext = true
-		mSegments = mSegments[:limit]
-	}
-
-	segments := make([]*entity.Segment, len(mSegments))
-	for i, mSegment := range mSegments {
-		segment, err := ToSegment(mSegment)
-		if err != nil {
-			return nil, nil, err
-		}
-		segments[i] = segment
-	}
-
-	return segments, &entity.Pagination{
-		Page:    goutil.Uint32(page),
-		Limit:   f.Pagination.Limit, // may be nil
-		HasNext: goutil.Bool(hasNext),
-		Total:   goutil.Int64(count),
-	}, nil
 }
 
-func (r *segmentRepo) Create(_ context.Context, segment *entity.Segment) (uint64, error) {
+func (r *segmentRepo) Create(ctx context.Context, segment *entity.Segment) (uint64, error) {
 	segmentModel, err := ToSegmentModel(segment)
 	if err != nil {
 		return 0, err
 	}
 
-	if err := r.orm.Create(&segmentModel).Error; err != nil {
+	if err := r.baseRepo.Create(ctx, segmentModel); err != nil {
 		return 0, err
 	}
 
 	return segmentModel.GetID(), nil
-}
-
-func (r *segmentRepo) Close(_ context.Context) error {
-	if r.orm != nil {
-		sqlDB, err := r.orm.DB()
-		if err != nil {
-			return err
-		}
-
-		err = sqlDB.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func ToSegmentModel(segment *entity.Segment) (*Segment, error) {
@@ -221,13 +195,15 @@ func ToSegmentModel(segment *entity.Segment) (*Segment, error) {
 	}
 
 	return &Segment{
-		ID:         segment.ID,
-		Name:       segment.Name,
-		Desc:       segment.Desc,
-		Status:     goutil.Uint32(uint32(segment.GetStatus())),
-		Criteria:   goutil.String(query),
-		CreateTime: segment.CreateTime,
-		UpdateTime: segment.UpdateTime,
+		ID:          segment.ID,
+		Name:        segment.Name,
+		SegmentDesc: segment.SegmentDesc,
+		Status:      goutil.Uint32(uint32(segment.GetStatus())),
+		Criteria:    goutil.String(query),
+		TenantID:    segment.TenantID,
+		CreatorID:   segment.CreatorID,
+		CreateTime:  segment.CreateTime,
+		UpdateTime:  segment.UpdateTime,
 	}, nil
 }
 
@@ -238,12 +214,14 @@ func ToSegment(segment *Segment) (*entity.Segment, error) {
 	}
 
 	return &entity.Segment{
-		ID:         segment.ID,
-		Name:       segment.Name,
-		Desc:       segment.Desc,
-		Criteria:   query,
-		Status:     entity.SegmentStatus(segment.GetStatus()),
-		CreateTime: segment.CreateTime,
-		UpdateTime: segment.UpdateTime,
+		ID:          segment.ID,
+		Name:        segment.Name,
+		SegmentDesc: segment.SegmentDesc,
+		Criteria:    query,
+		Status:      entity.SegmentStatus(segment.GetStatus()),
+		TenantID:    segment.TenantID,
+		CreatorID:   segment.CreatorID,
+		CreateTime:  segment.CreateTime,
+		UpdateTime:  segment.UpdateTime,
 	}, nil
 }

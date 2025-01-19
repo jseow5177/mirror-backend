@@ -94,18 +94,6 @@ func (r *tagRepo) count(ctx context.Context, tenantID uint64, conditions []*Cond
 	})
 }
 
-func (r *tagRepo) mayAddDeleteFilter(conditions []*Condition, filterDelete bool) []*Condition {
-	if filterDelete {
-		return append(conditions, &Condition{
-			Field: "status",
-			Value: entity.TagStatusDeleted,
-			Op:    OpNotEq,
-		})
-
-	}
-	return conditions
-}
-
 func (r *tagRepo) GetByName(ctx context.Context, tenantID uint64, name string) (*entity.Tag, error) {
 	return r.get(ctx, tenantID, []*Condition{
 		{
@@ -119,7 +107,7 @@ func (r *tagRepo) GetByName(ctx context.Context, tenantID uint64, name string) (
 func (r *tagRepo) GetByID(ctx context.Context, tenantID, tagID uint64) (*entity.Tag, error) {
 	return r.get(ctx, tenantID, []*Condition{
 		{
-			Field: "tag_id",
+			Field: "id",
 			Value: tagID,
 			Op:    OpEq,
 		},
@@ -178,6 +166,18 @@ func (r *tagRepo) get(ctx context.Context, tenantID uint64, conditions []*Condit
 	}
 
 	return ToTag(tag)
+}
+
+func (r *tagRepo) mayAddDeleteFilter(conditions []*Condition, filterDelete bool) []*Condition {
+	if filterDelete {
+		return append(conditions, &Condition{
+			Field: "status",
+			Value: entity.TagStatusDeleted,
+			Op:    OpNotEq,
+		})
+
+	}
+	return conditions
 }
 
 func (r *tagRepo) getBaseConditions(tenantID uint64) []*Condition {
