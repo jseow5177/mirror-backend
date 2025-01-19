@@ -1,7 +1,6 @@
 package repo
 
 import (
-	"cdp/config"
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
@@ -9,28 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
-
-type Pagination struct {
-	Limit *uint32
-	Page  *uint32
-}
-
-func (p *Pagination) GetLimit() uint32 {
-	if p != nil && p.Limit != nil {
-		return *p.Limit
-	}
-	return 0
-}
-
-func (p *Pagination) GetPage() uint32 {
-	if p != nil && p.Page != nil {
-		return *p.Page
-	}
-	return 0
-}
 
 var (
 	ErrTagNotFound = errutil.NotFoundError(errors.New("tag not found"))
@@ -39,11 +18,13 @@ var (
 type Tag struct {
 	ID         *uint64
 	Name       *string
-	Desc       *string
+	TagDesc    *string
 	Enum       *string
 	ValueType  *uint32
 	Status     *uint32
 	ExtInfo    *string
+	CreatorID  *uint64
+	TenantID   *uint64
 	CreateTime *uint64
 	UpdateTime *uint64
 }
@@ -87,171 +68,140 @@ func (m *Tag) GetExtInfo() string {
 	return ""
 }
 
-type TagFilter struct {
-	ID         *uint64
-	Name       *string
-	Desc       *string
-	Status     *uint32
-	Pagination *Pagination `gorm:"-"`
-}
-
-func (f *TagFilter) GetName() string {
-	if f != nil && f.Name != nil {
-		return *f.Name
-	}
-	return ""
-}
-
-func (f *TagFilter) GetDesc() string {
-	if f != nil && f.Desc != nil {
-		return *f.Desc
-	}
-	return ""
-}
-
 type TagRepo interface {
-	Get(ctx context.Context, f *TagFilter) (*entity.Tag, error)
-	GetMany(ctx context.Context, f *TagFilter) ([]*entity.Tag, *entity.Pagination, error)
 	Create(ctx context.Context, tag *entity.Tag) (uint64, error)
-	Update(ctx context.Context, tag *entity.Tag) error
-	Count(ctx context.Context, f *TagFilter) (uint64, error)
-	Close(ctx context.Context) error
+	GetByID(ctx context.Context, tenantID, tagID uint64) (*entity.Tag, error)
+	CountByTenantID(ctx context.Context, tenantID uint64) (uint64, error)
+	GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Tag, *Pagination, error)
+	GetByName(ctx context.Context, tenantID uint64, name string) (*entity.Tag, error)
 }
 
 type tagRepo struct {
-	orm *gorm.DB
+	baseRepo BaseRepo
 }
 
-func NewTagRepo(_ context.Context, mysqlCfg config.MySQL) (TagRepo, error) {
-	orm, err := gorm.Open(mysql.Open(mysqlCfg.ToDSN()), &gorm.Config{})
+func NewTagRepo(_ context.Context, baseRepo BaseRepo) TagRepo {
+	return &tagRepo{baseRepo: baseRepo}
+}
+
+func (r *tagRepo) CountByTenantID(ctx context.Context, tenantID uint64) (uint64, error) {
+	return r.count(ctx, tenantID, nil, true)
+}
+
+func (r *tagRepo) count(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool) (uint64, error) {
+	return r.baseRepo.Count(ctx, new(Tag), &Filter{
+		Conditions: append(r.getBaseConditions(tenantID), r.mayAddDeleteFilter(conditions, filterDelete)...),
+	})
+}
+
+func (r *tagRepo) mayAddDeleteFilter(conditions []*Condition, filterDelete bool) []*Condition {
+	if filterDelete {
+		return append(conditions, &Condition{
+			Field: "status",
+			Value: entity.TagStatusDeleted,
+			Op:    OpNotEq,
+		})
+
+	}
+	return conditions
+}
+
+func (r *tagRepo) GetByName(ctx context.Context, tenantID uint64, name string) (*entity.Tag, error) {
+	return r.get(ctx, tenantID, []*Condition{
+		{
+			Field: "name",
+			Value: name,
+			Op:    OpEq,
+		},
+	}, true)
+}
+
+func (r *tagRepo) GetByID(ctx context.Context, tenantID, tagID uint64) (*entity.Tag, error) {
+	return r.get(ctx, tenantID, []*Condition{
+		{
+			Field: "tag_id",
+			Value: tagID,
+			Op:    OpEq,
+		},
+	}, true)
+}
+
+func (r *tagRepo) GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Tag, *Pagination, error) {
+	return r.getMany(ctx, tenantID, []*Condition{
+		{
+			Field:         "LOWER(name)",
+			Value:         fmt.Sprintf("%%%s%%", keyword),
+			Op:            OpLike,
+			NextLogicalOp: LogicalOpOr,
+			OpenBracket:   true,
+		},
+		{
+			Field:        "LOWER(tag_desc)",
+			Value:        fmt.Sprintf("%%%s%%", keyword),
+			Op:           OpLike,
+			CloseBracket: true,
+		},
+	}, true, p)
+}
+
+func (r *tagRepo) getMany(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool, p *Pagination) ([]*entity.Tag, *Pagination, error) {
+	res, pNew, err := r.baseRepo.GetMany(ctx, new(Tag), &Filter{
+		Conditions: append(r.getBaseConditions(tenantID), r.mayAddDeleteFilter(conditions, filterDelete)...),
+		Pagination: p,
+	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &tagRepo{orm: orm}, nil
+
+	tags := make([]*entity.Tag, 0, len(res))
+	for _, m := range res {
+		tag, err := ToTag(m.(*Tag))
+		if err != nil {
+			return nil, nil, err
+		}
+		tags = append(tags, tag)
+	}
+
+	return tags, pNew, nil
 }
 
-func (r *tagRepo) Count(_ context.Context, _ *TagFilter) (uint64, error) {
-	var count int64
-	if err := r.orm.Model(&Tag{}).Where("status != ?", entity.TagStatusDeleted).Count(&count).Error; err != nil {
-		return 0, err
-	}
-	return uint64(count), nil
-}
-
-func (r *tagRepo) Get(_ context.Context, f *TagFilter) (*entity.Tag, error) {
+func (r *tagRepo) get(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool) (*entity.Tag, error) {
 	tag := new(Tag)
-	if err := r.orm.Where(f).First(tag).Error; err != nil {
+
+	if err := r.baseRepo.Get(ctx, tag, &Filter{
+		Conditions: append(r.getBaseConditions(tenantID), r.mayAddDeleteFilter(conditions, filterDelete)...),
+	}); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrTagNotFound
 		}
 		return nil, err
 	}
+
 	return ToTag(tag)
 }
 
-func (r *tagRepo) GetMany(_ context.Context, f *TagFilter) ([]*entity.Tag, *entity.Pagination, error) {
-	var (
-		cond string
-		args = make([]interface{}, 0)
-	)
-	if f.Name != nil {
-		cond += "LOWER(name) LIKE ?"
-		args = append(args, fmt.Sprintf("%%%s%%", f.GetName()))
+func (r *tagRepo) getBaseConditions(tenantID uint64) []*Condition {
+	return []*Condition{
+		{
+			Field:         "tenant_id",
+			Value:         tenantID,
+			Op:            OpEq,
+			NextLogicalOp: LogicalOpAnd,
+		},
 	}
-
-	if f.Desc != nil {
-		if cond != "" {
-			cond += " OR "
-		}
-		cond += "LOWER(`desc`) LIKE ?"
-		args = append(args, fmt.Sprintf("%%%s%%", f.GetDesc()))
-	}
-
-	if cond != "" {
-		cond += " AND "
-	}
-	cond += "status != ?"
-	args = append(args, entity.TagStatusDeleted)
-
-	var count int64
-	if err := r.orm.Model(new(Tag)).Where(cond, args...).Count(&count).Error; err != nil {
-		return nil, nil, err
-	}
-
-	var (
-		limit = f.Pagination.GetLimit()
-		page  = f.Pagination.GetPage()
-	)
-	if page == 0 {
-		page = 1
-	}
-
-	var (
-		offset = (page - 1) * limit
-		mTags  = make([]*Tag, 0)
-	)
-	query := r.orm.Where(cond, args...).Offset(int(offset))
-	if limit > 0 {
-		query = query.Limit(int(limit + 1))
-	}
-
-	if err := query.Find(&mTags).Error; err != nil {
-		return nil, nil, err
-	}
-
-	var hasNext bool
-	if limit > 0 && len(mTags) > int(limit) {
-		hasNext = true
-		mTags = mTags[:limit]
-	}
-
-	tags := make([]*entity.Tag, len(mTags))
-	for i, mTag := range mTags {
-		tag, err := ToTag(mTag)
-		if err != nil {
-			return nil, nil, err
-		}
-		tags[i] = tag
-	}
-
-	return tags, &entity.Pagination{
-		Page:    goutil.Uint32(page),
-		Limit:   f.Pagination.Limit, // may be nil
-		HasNext: goutil.Bool(hasNext),
-		Total:   goutil.Int64(count),
-	}, nil
 }
 
-func (r *tagRepo) Create(_ context.Context, tag *entity.Tag) (uint64, error) {
+func (r *tagRepo) Create(ctx context.Context, tag *entity.Tag) (uint64, error) {
 	tagModel, err := ToTagModel(tag)
 	if err != nil {
 		return 0, err
 	}
 
-	if err := r.orm.Create(&tagModel).Error; err != nil {
+	if err := r.baseRepo.Create(ctx, tagModel); err != nil {
 		return 0, err
 	}
 
 	return tagModel.GetID(), nil
-}
-
-func (r *tagRepo) Update(_ context.Context, _ *entity.Tag) error {
-	panic("implement me")
-}
-
-func (r *tagRepo) Close(_ context.Context) error {
-	if r.orm != nil {
-		sqlDB, err := r.orm.DB()
-		if err != nil {
-			return err
-		}
-
-		err = sqlDB.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func ToTagModel(tag *entity.Tag) (*Tag, error) {
@@ -268,11 +218,13 @@ func ToTagModel(tag *entity.Tag) (*Tag, error) {
 	return &Tag{
 		ID:         tag.ID,
 		Name:       tag.Name,
-		Desc:       tag.Desc,
+		TagDesc:    tag.TagDesc,
 		ValueType:  goutil.Uint32(uint32(tag.GetValueType())),
 		Status:     goutil.Uint32(uint32(tag.GetStatus())),
 		ExtInfo:    goutil.String(extInfo),
 		Enum:       goutil.String(string(enum)),
+		CreatorID:  tag.CreatorID,
+		TenantID:   tag.TenantID,
 		CreateTime: tag.CreateTime,
 		UpdateTime: tag.UpdateTime,
 	}, nil
@@ -292,11 +244,13 @@ func ToTag(tag *Tag) (*entity.Tag, error) {
 	return &entity.Tag{
 		ID:         tag.ID,
 		Name:       tag.Name,
-		Desc:       tag.Desc,
+		TagDesc:    tag.TagDesc,
 		Status:     entity.TagStatus(tag.GetStatus()),
 		ValueType:  entity.TagValueType(tag.GetValueType()),
 		Enum:       enum,
 		ExtInfo:    extInfo,
+		CreatorID:  tag.CreatorID,
+		TenantID:   tag.TenantID,
 		CreateTime: tag.CreateTime,
 		UpdateTime: tag.UpdateTime,
 	}, nil

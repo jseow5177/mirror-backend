@@ -49,6 +49,7 @@ type UserRepo interface {
 	Update(ctx context.Context, user *entity.User) error
 	GetByID(ctx context.Context, userID uint64) (*entity.User, error)
 	GetByEmail(ctx context.Context, tenantID uint64, email string) (*entity.User, error)
+	GetByUsername(ctx context.Context, tenantID uint64, username string) (*entity.User, error)
 }
 
 type userRepo struct {
@@ -60,36 +61,45 @@ func NewUserRepo(_ context.Context, baseRepo BaseRepo) UserRepo {
 }
 
 func (r *userRepo) GetByID(ctx context.Context, userID uint64) (*entity.User, error) {
-	return r.get(ctx, []*Condition{
+	return r.get(ctx, 0, []*Condition{
 		{
 			Field: "id",
 			Value: userID,
 			Op:    OpEq,
 		},
-	})
+	}, true)
 }
 
 func (r *userRepo) GetByEmail(ctx context.Context, tenantID uint64, email string) (*entity.User, error) {
-	return r.get(ctx, []*Condition{
+	return r.get(ctx, tenantID, []*Condition{
 		{
-			Field:         "email",
-			Value:         email,
-			Op:            OpEq,
-			NextLogicalOp: LogicalOpAnd,
-		},
-		{
-			Field: "tenant_id",
-			Value: tenantID,
+			Field: "email",
+			Value: email,
 			Op:    OpEq,
 		},
-	})
+	}, true)
 }
 
-func (r *userRepo) get(ctx context.Context, conditions []*Condition) (*entity.User, error) {
+func (r *userRepo) GetByUsername(ctx context.Context, tenantID uint64, username string) (*entity.User, error) {
+	return r.get(ctx, tenantID, []*Condition{
+		{
+			Field: "username",
+			Value: username,
+			Op:    OpEq,
+		},
+	}, true)
+}
+
+func (r *userRepo) get(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool) (*entity.User, error) {
 	user := new(User)
 
+	baseConditions := make([]*Condition, 0)
+	if tenantID != 0 {
+		baseConditions = append(baseConditions, r.getBaseConditions(tenantID)...)
+	}
+
 	if err := r.baseRepo.Get(ctx, user, &Filter{
-		Conditions: r.baseRepo.BuildConditions(r.getBaseConditions(), conditions),
+		Conditions: append(baseConditions, r.mayAddDeleteFilter(conditions, filterDelete)...),
 	}); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUserNotFound
@@ -100,12 +110,23 @@ func (r *userRepo) get(ctx context.Context, conditions []*Condition) (*entity.Us
 	return ToUser(user), nil
 }
 
-func (r *userRepo) getBaseConditions() []*Condition {
+func (r *userRepo) mayAddDeleteFilter(conditions []*Condition, filterDelete bool) []*Condition {
+	if filterDelete {
+		return append(conditions, &Condition{
+			Field: "status",
+			Value: entity.UserStatusDeleted,
+			Op:    OpNotEq,
+		})
+	}
+	return conditions
+}
+
+func (r *userRepo) getBaseConditions(tenantID uint64) []*Condition {
 	return []*Condition{
 		{
-			Field:         "status",
-			Value:         entity.UserStatusDeleted,
-			Op:            OpNotEq,
+			Field:         "tenant_id",
+			Value:         tenantID,
+			Op:            OpEq,
 			NextLogicalOp: LogicalOpAnd,
 		},
 	}

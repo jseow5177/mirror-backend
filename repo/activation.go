@@ -75,7 +75,7 @@ func (r *activationRepo) get(ctx context.Context, conditions []*Condition) (*ent
 	act := new(Activation)
 
 	if err := r.baseRepo.Get(ctx, act, &Filter{
-		Conditions: r.baseRepo.BuildConditions(r.getBaseConditions(), conditions),
+		Conditions: append(r.getBaseConditions(), conditions...),
 	}); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrTokenNotFound
@@ -87,7 +87,6 @@ func (r *activationRepo) get(ctx context.Context, conditions []*Condition) (*ent
 }
 
 func (r *activationRepo) getBaseConditions() []*Condition {
-	// TODO: Expiry logic
 	return []*Condition{}
 }
 
@@ -130,6 +129,7 @@ func (r *activationRepo) Update(ctx context.Context, act *entity.Activation) err
 func ToActivation(act *Activation) *entity.Activation {
 	return &entity.Activation{
 		ID:         act.ID,
+		Token:      nil,
 		TokenHash:  act.TokenHash,
 		TargetID:   act.TargetID,
 		TokenType:  entity.TokenType(act.GetTokenType()),

@@ -28,6 +28,7 @@ const (
 	PathCreateUser           = "/create_user"
 	PathInitUser             = "/init_user"
 	PathIsUserPendingInit    = "/is_user_pending_init"
+	PathLogIn                = "/log_in"
 )
 
 const (

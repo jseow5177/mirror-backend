@@ -21,6 +21,13 @@ func InternalServerError(err error) error {
 	}
 }
 
+func UnauthorizedError(err error) error {
+	return HttpError{
+		Code: http.StatusUnauthorized,
+		Err:  err,
+	}
+}
+
 func BadRequestError(err error) error {
 	return HttpError{
 		Code: http.StatusBadRequest,

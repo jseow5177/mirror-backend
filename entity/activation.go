@@ -76,6 +76,6 @@ func NewActivation(targetID uint64, tokenType TokenType) (*Activation, error) {
 		TokenHash:  goutil.String(goutil.Sha256(token)),
 		TokenType:  tokenType,
 		CreateTime: goutil.Uint64(now),
-		ExpireTime: goutil.Uint64(now), // TODO: Add expiry logic
+		ExpireTime: goutil.Uint64(now),
 	}, nil
 }

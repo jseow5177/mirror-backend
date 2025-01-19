@@ -17,20 +17,89 @@ type UserHandler interface {
 	CreateUser(ctx context.Context, req *CreateUserRequest, res *CreateUserResponse) error
 	IsUserPendingInit(ctx context.Context, req *IsUserPendingInitRequest, res *IsUserPendingInitResponse) error
 	InitUser(ctx context.Context, req *InitUserRequest, res *InitUserResponse) error
+	LogIn(ctx context.Context, req *LogInRequest, res *LogInResponse) error
 }
 
 type userHandler struct {
 	userRepo       repo.UserRepo
 	tenantRepo     repo.TenantRepo
 	activationRepo repo.ActivationRepo
+	sessionRepo    repo.SessionRepo
 }
 
-func NewUserHandler(userRepo repo.UserRepo, tenantRepo repo.TenantRepo, activationRepo repo.ActivationRepo) UserHandler {
+func NewUserHandler(userRepo repo.UserRepo, tenantRepo repo.TenantRepo, activationRepo repo.ActivationRepo, sessionRepo repo.SessionRepo) UserHandler {
 	return &userHandler{
 		userRepo:       userRepo,
 		tenantRepo:     tenantRepo,
 		activationRepo: activationRepo,
+		sessionRepo:    sessionRepo,
 	}
+}
+
+type LogInRequest struct {
+	TenantName *string `json:"tenant_name"`
+	Username   *string `json:"username,omitempty"`
+	Password   *string `json:"password,omitempty"`
+}
+
+func (r *LogInRequest) GetTenantName() string {
+	if r != nil && r.TenantName != nil {
+		return *r.TenantName
+	}
+	return ""
+}
+
+func (r *LogInRequest) GetUsername() string {
+	if r != nil && r.Username != nil {
+		return *r.Username
+	}
+	return ""
+}
+
+func (r *LogInRequest) GetPassword() string {
+	if r != nil && r.Password != nil {
+		return *r.Password
+	}
+	return ""
+}
+
+type LogInResponse struct {
+	Session *entity.Session `json:"session,omitempty"`
+}
+
+func (h *userHandler) LogIn(ctx context.Context, req *LogInRequest, res *LogInResponse) error {
+	tenant, err := h.tenantRepo.GetByName(ctx, req.GetTenantName())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get tenant error: %v", err)
+		return err
+	}
+
+	user, err := h.userRepo.GetByUsername(ctx, tenant.GetID(), req.GetUsername())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get user error: %v", err)
+		return err
+	}
+
+	if !user.ComparePassword(req.GetPassword()) {
+		return errutil.UnauthorizedError(errors.New("invalid password"))
+	}
+
+	sess, err := entity.NewSession(user.GetID())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("new session error: %v", err)
+		return err
+	}
+
+	id, err := h.sessionRepo.Create(ctx, sess)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("create session error: %v", err)
+		return err
+	}
+
+	sess.ID = goutil.Uint64(id)
+	res.Session = sess
+
+	return nil
 }
 
 type IsUserPendingInitRequest struct {
@@ -77,9 +146,7 @@ func (h *userHandler) IsUserPendingInit(ctx context.Context, req *IsUserPendingI
 		return err
 	}
 
-	userID := act.GetTargetID()
-
-	user, err := h.userRepo.GetByID(ctx, userID)
+	user, err := h.userRepo.GetByID(ctx, act.GetTargetID())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get user failed: %v", err)
 		return err

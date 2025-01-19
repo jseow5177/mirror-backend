@@ -17,8 +17,7 @@ import (
 )
 
 const (
-	appBasePath   = "/api/v1"
-	adminBasePath = "/api/admin/v1"
+	appBasePath = "/api/v1"
 )
 
 type FileMeta struct {
@@ -53,7 +52,6 @@ type HttpRoute struct {
 	Path        string
 	Handler     Handler
 	Middlewares []Middleware
-	IsAdmin     bool
 }
 
 type HttpRouter struct {
@@ -75,18 +73,15 @@ func (r *HttpRouter) RegisterHttpRoute(hr *HttpRoute) {
 		}
 	}
 
-	basePath := appBasePath
-	if hr.IsAdmin {
-		basePath = adminBasePath
-	}
-
-	r.Methods(hr.Method).Path(fmt.Sprintf("%s%s", basePath, hr.Path)).Handler(chain)
+	r.Methods(hr.Method).Path(fmt.Sprintf("%s%s", appBasePath, hr.Path)).Handler(chain)
 }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	req := reflect.New(h.reqT).Interface()
-	res := reflect.New(h.respT).Interface()
+	var (
+		ctx = r.Context()
+		req = reflect.New(h.reqT).Interface()
+		res = reflect.New(h.respT).Interface()
+	)
 
 	if err := decoder.Decode(req, r.URL.Query()); err != nil {
 		log.Ctx(ctx).Error().Msgf("decode url query params error: %v", err)
@@ -109,10 +104,9 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// set to FileMeta field in request struct
-			reqVal := reflect.ValueOf(req).Elem()
-			if fileMetaField, ok := reqVal.Type().FieldByName("FileMeta"); ok {
-				fv := reqVal.FieldByName(fileMetaField.Name)
+			// set FileMeta field in request struct if present
+			if fileMetaField, ok := h.reqT.Elem().FieldByName("FileMeta"); ok {
+				fv := reflect.ValueOf(req).Elem().FieldByName(fileMetaField.Name)
 				if fv.CanSet() {
 					fv.Set(reflect.ValueOf(fileMeta))
 				} else {
@@ -124,6 +118,20 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(ErrUnsupportedContentType))
 			return
+		}
+	}
+
+	if contextInfo, ok := req.(ContextInfo); ok {
+		var (
+			user, userOk     = GetUserFromContext(ctx)
+			tenant, tenantOk = GetTenantFromContext(ctx)
+		)
+
+		if userOk {
+			contextInfo.SetUser(user)
+		}
+		if tenantOk {
+			contextInfo.SetTenant(tenant)
 		}
 	}
 

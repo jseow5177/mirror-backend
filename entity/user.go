@@ -80,6 +80,10 @@ func (e *User) Update(t *User) bool {
 	return hasChange
 }
 
+func (e *User) ComparePassword(input string) bool {
+	return goutil.CompareBCrypt(e.GetPassword(), input) == nil
+}
+
 func (e *User) GetID() uint64 {
 	if e != nil && e.ID != nil {
 		return *e.ID

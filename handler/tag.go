@@ -28,20 +28,24 @@ func NewTagHandler(tagRepo repo.TagRepo) TagHandler {
 	}
 }
 
-type CountTagsRequest struct{}
+type CountTagsRequest struct {
+	ContextInfo
+}
 
 type CountTagsResponse struct {
 	Count *uint64 `json:"count,omitempty"`
 }
 
-var CountTagsValidator = validator.MustForm(map[string]validator.Validator{})
+var CountTagsValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator,
+})
 
 func (h *tagHandler) CountTags(ctx context.Context, req *CountTagsRequest, res *CountTagsResponse) error {
 	if err := CountTagsValidator.Validate(req); err != nil {
 		return errutil.ValidationError(err)
 	}
 
-	count, err := h.tagRepo.Count(ctx, nil)
+	count, err := h.tagRepo.CountByTenantID(ctx, req.GetTenantID())
 	if err != nil {
 		return err
 	}
@@ -52,19 +56,29 @@ func (h *tagHandler) CountTags(ctx context.Context, req *CountTagsRequest, res *
 }
 
 type GetTagsRequest struct {
-	Name       *string            `json:"name,omitempty"`
-	Desc       *string            `json:"desc,omitempty"`
-	Pagination *entity.Pagination `json:"pagination,omitempty"`
+	ContextInfo
+
+	Keyword    *string          `json:"keyword,omitempty"`
+	Pagination *repo.Pagination `json:"pagination,omitempty"`
+}
+
+func (r *GetTagsRequest) GetKeyword() string {
+	if r != nil && r.Keyword != nil {
+		return *r.Keyword
+	}
+	return ""
 }
 
 type GetTagsResponse struct {
-	Tags       []*entity.Tag      `json:"tags"`
-	Pagination *entity.Pagination `json:"pagination,omitempty"`
+	Tags       []*entity.Tag    `json:"tags"`
+	Pagination *repo.Pagination `json:"pagination,omitempty"`
 }
 
 var GetTagsValidator = validator.MustForm(map[string]validator.Validator{
-	"name":       ResourceNameValidator(true),
-	"desc":       ResourceDescValidator(true),
+	"ContextInfo": ContextInfoValidator,
+	"keyword": &validator.String{
+		Optional: true,
+	},
 	"pagination": PaginationValidator(),
 })
 
@@ -74,17 +88,10 @@ func (h *tagHandler) GetTags(ctx context.Context, req *GetTagsRequest, res *GetT
 	}
 
 	if req.Pagination == nil {
-		req.Pagination = new(entity.Pagination)
+		req.Pagination = new(repo.Pagination)
 	}
 
-	tags, pagination, err := h.tagRepo.GetMany(ctx, &repo.TagFilter{
-		Name: req.Name,
-		Desc: req.Desc,
-		Pagination: &repo.Pagination{
-			Page:  req.Pagination.Page,
-			Limit: req.Pagination.Limit,
-		},
-	})
+	tags, pagination, err := h.tagRepo.GetByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get tags failed: %v", err)
 		return err
@@ -97,8 +104,10 @@ func (h *tagHandler) GetTags(ctx context.Context, req *GetTagsRequest, res *GetT
 }
 
 type CreateTagRequest struct {
+	ContextInfo
+
 	Name      *string           `json:"name,omitempty"`
-	Desc      *string           `json:"desc,omitempty"`
+	TagDesc   *string           `json:"tag_desc,omitempty"`
 	Enum      []string          `json:"enum,omitempty"`
 	ValueType *uint32           `json:"value_type,omitempty"`
 	ExtInfo   *CreateTagExtInfo `json:"ext_info,omitempty"`
@@ -127,11 +136,13 @@ func (req *CreateTagRequest) ToTag() *entity.Tag {
 	now := time.Now()
 	return &entity.Tag{
 		Name:       req.Name,
-		Desc:       req.Desc,
+		TagDesc:    req.TagDesc,
 		Enum:       req.Enum,
 		ValueType:  entity.TagValueType(req.GetValueType()),
 		Status:     entity.TagStatusNormal,
 		ExtInfo:    &entity.TagExtInfo{},
+		TenantID:   goutil.Uint64(req.GetTenantID()),
+		CreatorID:  goutil.Uint64(req.GetUserID()),
 		CreateTime: goutil.Uint64(uint64(now.Unix())),
 		UpdateTime: goutil.Uint64(uint64(now.Unix())),
 	}
@@ -142,8 +153,9 @@ type CreateTagResponse struct {
 }
 
 var CreateTagValidator = validator.MustForm(map[string]validator.Validator{
-	"name": ResourceNameValidator(false),
-	"desc": ResourceDescValidator(false),
+	"ContextInfo": ContextInfoValidator,
+	"name":        ResourceNameValidator(false),
+	"tag_desc":    ResourceDescValidator(false),
 	"value_type": &validator.UInt32{
 		Optional:   false,
 		Validators: []validator.UInt32Func{entity.CheckTagValueType},
@@ -166,11 +178,7 @@ func (h *tagHandler) CreateTag(ctx context.Context, req *CreateTagRequest, res *
 		}
 	}
 
-	f := &repo.TagFilter{
-		Name:   tag.Name,
-		Status: goutil.Uint32(uint32(entity.TagStatusNormal)),
-	}
-	_, err := h.tagRepo.Get(ctx, f)
+	_, err := h.tagRepo.GetByName(ctx, req.GetTenantID(), tag.GetName())
 	if err == nil {
 		return errutil.ConflictError(errors.New("tag already exists"))
 	}

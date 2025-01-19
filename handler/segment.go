@@ -27,25 +27,27 @@ type segmentHandler struct {
 	cfg         *config.Config
 	segmentRepo repo.SegmentRepo
 	tagRepo     repo.TagRepo
-	queryRepo   repo.QueryRepo
 }
 
-func NewSegmentHandler(cfg *config.Config, tagRepo repo.TagRepo, segmentRepo repo.SegmentRepo, queryRepo repo.QueryRepo) SegmentHandler {
+func NewSegmentHandler(cfg *config.Config, tagRepo repo.TagRepo, segmentRepo repo.SegmentRepo) SegmentHandler {
 	return &segmentHandler{
 		cfg:         cfg,
 		tagRepo:     tagRepo,
 		segmentRepo: segmentRepo,
-		queryRepo:   queryRepo,
 	}
 }
 
-type CountSegmentsRequest struct{}
+type CountSegmentsRequest struct {
+	ContextInfo
+}
 
 type CountSegmentsResponse struct {
 	Count *uint64 `json:"count,omitempty"`
 }
 
-var CountSegmentsValidator = validator.MustForm(map[string]validator.Validator{})
+var CountSegmentsValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator,
+})
 
 func (h *segmentHandler) CountSegments(ctx context.Context, req *CountSegmentsRequest, res *CountSegmentsResponse) error {
 	if err := CountSegmentsValidator.Validate(req); err != nil {
@@ -63,6 +65,8 @@ func (h *segmentHandler) CountSegments(ctx context.Context, req *CountSegmentsRe
 }
 
 type GetSegmentRequest struct {
+	ContextInfo
+
 	SegmentID *uint64 `json:"segment_id,omitempty"`
 }
 
@@ -71,7 +75,8 @@ type GetSegmentResponse struct {
 }
 
 var GetSegmentValidator = validator.MustForm(map[string]validator.Validator{
-	"segment_id": &validator.UInt64{},
+	"ContextInfo": ContextInfoValidator,
+	"segment_id":  &validator.UInt64{},
 })
 
 func (h *segmentHandler) GetSegment(ctx context.Context, req *GetSegmentRequest, res *GetSegmentResponse) error {
@@ -138,6 +143,8 @@ func (h *segmentHandler) GetSegments(ctx context.Context, req *GetSegmentsReques
 }
 
 type CreateSegmentRequest struct {
+	ContextInfo
+
 	Name     *string       `json:"name,omitempty"`
 	Desc     *string       `json:"desc,omitempty"`
 	Criteria *entity.Query `json:"criteria,omitempty"`
@@ -163,8 +170,9 @@ type CreateSegmentResponse struct {
 }
 
 var CreateSegmentValidator = validator.MustForm(map[string]validator.Validator{
-	"name": ResourceNameValidator(false),
-	"desc": ResourceDescValidator(false),
+	"ContextInfo": ContextInfoValidator,
+	"name":        ResourceNameValidator(false),
+	"desc":        ResourceDescValidator(false),
 })
 
 func (h *segmentHandler) CreateSegment(ctx context.Context, req *CreateSegmentRequest, res *CreateSegmentResponse) error {
@@ -172,7 +180,7 @@ func (h *segmentHandler) CreateSegment(ctx context.Context, req *CreateSegmentRe
 		return errutil.ValidationError(err)
 	}
 
-	v := NewQueryValidator(h.tagRepo, false)
+	v := NewQueryValidator(req.GetTenantID(), h.tagRepo, false)
 	if err := v.Validate(ctx, req.Criteria); err != nil {
 		return errutil.ValidationError(err)
 	}
@@ -286,18 +294,14 @@ func (h *segmentHandler) CountUd(ctx context.Context, req *CountUdRequest, res *
 		return err
 	}
 
-	//count, err := h.queryRepo.Count(ctx, segment.Criteria)
-	//if err != nil {
-	//	log.Ctx(ctx).Error().Msgf("get count failed: %v", err)
-	//	return err
-	//}
-
 	res.Count = goutil.Uint64(0)
 
 	return nil
 }
 
 type PreviewUdRequest struct {
+	ContextInfo
+
 	Criteria *entity.Query `json:"criteria,omitempty"`
 }
 
@@ -305,25 +309,21 @@ type PreviewUdResponse struct {
 	Count *int64 `json:"count,omitempty"`
 }
 
-var PreviewUdValidator = validator.MustForm(map[string]validator.Validator{})
+var PreviewUdValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator,
+})
 
 func (h *segmentHandler) PreviewUd(ctx context.Context, req *PreviewUdRequest, res *PreviewUdResponse) error {
 	if err := PreviewUdValidator.Validate(req); err != nil {
 		return errutil.ValidationError(err)
 	}
 
-	v := NewQueryValidator(h.tagRepo, false)
+	v := NewQueryValidator(req.GetTenantID(), h.tagRepo, false)
 	if err := v.Validate(ctx, req.Criteria); err != nil {
 		log.Ctx(ctx).Warn().Msgf("validate segment failed: %v", err)
 		res.Count = goutil.Int64(-1)
 		return nil
 	}
-
-	//count, err := h.queryRepo.Count(ctx, req.Criteria)
-	//if err != nil {
-	//	log.Ctx(ctx).Error().Msgf("get preview count failed: %v", err)
-	//	return err
-	//}
 
 	res.Count = goutil.Int64(0)
 

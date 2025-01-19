@@ -111,12 +111,14 @@ type QueryValidator interface {
 }
 
 type queryValidator struct {
+	tenantID uint64
 	tagRepo  repo.TagRepo
 	optional bool
 }
 
-func NewQueryValidator(tagRepo repo.TagRepo, optional bool) QueryValidator {
+func NewQueryValidator(tenantID uint64, tagRepo repo.TagRepo, optional bool) QueryValidator {
 	return &queryValidator{
+		tenantID: tenantID,
 		tagRepo:  tagRepo,
 		optional: optional,
 	}
@@ -177,9 +179,7 @@ func (v *queryValidator) validateLookup(ctx context.Context, lookup *entity.Look
 		return errors.New("missing tag id in lookup")
 	}
 
-	tag, err := v.tagRepo.Get(ctx, &repo.TagFilter{
-		ID: lookup.TagID,
-	})
+	tag, err := v.tagRepo.GetByID(ctx, v.tenantID, lookup.GetTagID())
 	if err != nil {
 		return err
 	}

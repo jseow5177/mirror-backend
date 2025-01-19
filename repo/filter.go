@@ -25,6 +25,34 @@ const (
 	OpIn    Op = "IN"
 )
 
+type Pagination struct {
+	Limit   *uint32 `json:"limit,omitempty"`
+	Page    *uint32 `json:"page,omitempty"`
+	Total   *uint32 `json:"total,omitempty"`
+	HasNext *bool   `json:"has_next,omitempty"`
+}
+
+func (p *Pagination) GetLimit() uint32 {
+	if p != nil && p.Limit != nil {
+		return *p.Limit
+	}
+	return 0
+}
+
+func (p *Pagination) GetPage() uint32 {
+	if p != nil && p.Page != nil {
+		return *p.Page
+	}
+	return 0
+}
+
+func (p *Pagination) GetTotal() uint32 {
+	if p != nil && p.Total != nil {
+		return *p.Total
+	}
+	return 0
+}
+
 type Filter struct {
 	Conditions []*Condition
 	Pagination *Pagination
@@ -35,6 +63,8 @@ type Condition struct {
 	Op            Op
 	Value         interface{}
 	NextLogicalOp LogicalOp
+	OpenBracket   bool
+	CloseBracket  bool
 }
 
 func ToSqlWithArgs(f *Filter) (sql string, args []interface{}) {
@@ -43,31 +73,15 @@ func ToSqlWithArgs(f *Filter) (sql string, args []interface{}) {
 			continue
 		}
 
-		switch condition.Op {
-		case OpEq:
-			sql += fmt.Sprintf("%s = ?", condition.Field)
-			args = append(args, condition.Value)
-		case OpNotEq:
-			sql += fmt.Sprintf("%s != ?", condition.Field)
-			args = append(args, condition.Value)
-		case OpGt:
-			sql += fmt.Sprintf("%s > ?", condition.Field)
-			args = append(args, condition.Value)
-		case OpGte:
-			sql += fmt.Sprintf("%s >= ?", condition.Field)
-			args = append(args, condition.Value)
-		case OpLt:
-			sql += fmt.Sprintf("%s < ?", condition.Field)
-			args = append(args, condition.Value)
-		case OpLte:
-			sql += fmt.Sprintf("%s <= ?", condition.Field)
-			args = append(args, condition.Value)
-		case OpLike:
-			sql += fmt.Sprintf("%s LIKE ?", condition.Field)
-			args = append(args, condition.Value)
-		case OpIn:
-			sql += fmt.Sprintf("%s IN ?", condition.Field)
-			args = append(args, condition.Value)
+		var subSql string
+		if condition.OpenBracket {
+			subSql += "("
+		}
+
+		subSql += fmt.Sprintf("%s %s ?", condition.Field, condition.Op)
+
+		if condition.CloseBracket {
+			subSql += ")"
 		}
 
 		logicalOp := condition.NextLogicalOp
@@ -76,8 +90,11 @@ func ToSqlWithArgs(f *Filter) (sql string, args []interface{}) {
 		}
 
 		if len(f.Conditions) > 1 && i != len(f.Conditions)-1 {
-			sql += fmt.Sprintf(" %s ", logicalOp)
+			subSql += fmt.Sprintf(" %s ", logicalOp)
 		}
+
+		sql += subSql
+		args = append(args, condition.Value)
 	}
 
 	return

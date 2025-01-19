@@ -69,7 +69,7 @@ func (r *tenantRepo) GetByName(ctx context.Context, tenantName string) (*entity.
 			Value: tenantName,
 			Op:    OpEq,
 		},
-	})
+	}, true)
 }
 
 func (r *tenantRepo) GetByID(ctx context.Context, tenantID uint64) (*entity.Tenant, error) {
@@ -79,14 +79,14 @@ func (r *tenantRepo) GetByID(ctx context.Context, tenantID uint64) (*entity.Tena
 			Value: tenantID,
 			Op:    OpEq,
 		},
-	})
+	}, true)
 }
 
-func (r *tenantRepo) get(ctx context.Context, conditions []*Condition) (*entity.Tenant, error) {
+func (r *tenantRepo) get(ctx context.Context, conditions []*Condition, filterDelete bool) (*entity.Tenant, error) {
 	tenant := new(Tenant)
 
 	if err := r.baseRepo.Get(ctx, tenant, &Filter{
-		Conditions: r.baseRepo.BuildConditions(r.getBaseConditions(), conditions),
+		Conditions: append(r.getBaseConditions(), r.mayAddDeleteFilter(conditions, filterDelete)...),
 	}); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrTenantNotFound
@@ -97,15 +97,19 @@ func (r *tenantRepo) get(ctx context.Context, conditions []*Condition) (*entity.
 	return ToTenant(tenant), nil
 }
 
-func (r *tenantRepo) getBaseConditions() []*Condition {
-	return []*Condition{
-		{
-			Field:         "status",
-			Value:         entity.TenantStatusDeleted,
-			Op:            OpNotEq,
-			NextLogicalOp: LogicalOpAnd,
-		},
+func (r *tenantRepo) mayAddDeleteFilter(conditions []*Condition, filterDelete bool) []*Condition {
+	if filterDelete {
+		return append(conditions, &Condition{
+			Field: "status",
+			Value: entity.TenantStatusDeleted,
+			Op:    OpNotEq,
+		})
 	}
+	return conditions
+}
+
+func (r *tenantRepo) getBaseConditions() []*Condition {
+	return []*Condition{}
 }
 
 func (r *tenantRepo) Create(ctx context.Context, tenant *entity.Tenant) (uint64, error) {

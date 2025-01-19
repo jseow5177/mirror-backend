@@ -1,4 +1,4 @@
-package middleware
+package router
 
 import (
 	"github.com/rs/zerolog/hlog"

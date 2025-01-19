@@ -4,7 +4,6 @@ import (
 	"cdp/config"
 	"cdp/dep"
 	"cdp/handler"
-	"cdp/middleware"
 	"cdp/pkg/router"
 	"cdp/pkg/service"
 	"cdp/repo"
@@ -35,9 +34,7 @@ type server struct {
 	tagRepo           repo.TagRepo
 	segmentRepo       repo.SegmentRepo
 	fileRepo          repo.FileRepo
-	taskRepo          repo.TaskRepo
 	mappingIDRepo     repo.MappingIDRepo
-	queryRepo         repo.QueryRepo
 	emailRepo         repo.EmailRepo
 	campaignRepo      repo.CampaignRepo
 	campaignEmailRepo repo.CampaignEmailRepo
@@ -45,6 +42,7 @@ type server struct {
 	tenantRepo        repo.TenantRepo
 	userRepo          repo.UserRepo
 	activationRepo    repo.ActivationRepo
+	sessionRepo       repo.SessionRepo
 
 	// services
 	emailService dep.EmailService
@@ -52,7 +50,6 @@ type server struct {
 	// api handlers
 	tagHandler       handler.TagHandler
 	segmentHandler   handler.SegmentHandler
-	taskHandler      handler.TaskHandler
 	mappingIDHandler handler.MappingIDHandler
 	emailHandler     handler.EmailHandler
 	campaignHandler  handler.CampaignHandler
@@ -123,21 +120,6 @@ func (s *server) Start() error {
 		}
 	}()
 
-	// tag repo
-	s.tagRepo, err = repo.NewTagRepo(s.ctx, s.cfg.MetadataDB)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init tag repo failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.tagRepo != nil {
-			if err := s.tagRepo.Close(s.ctx); err != nil {
-				log.Ctx(s.ctx).Error().Msgf("close tag repo failed, err: %v", err)
-				return
-			}
-		}
-	}()
-
 	// segment repo
 	s.segmentRepo, err = repo.NewSegmentRepo(s.ctx, s.cfg.MetadataDB)
 	if err != nil {
@@ -159,21 +141,6 @@ func (s *server) Start() error {
 		if err != nil && s.fileRepo != nil {
 			if err := s.fileRepo.Close(s.ctx); err != nil {
 				log.Ctx(s.ctx).Error().Msgf("close file repo failed, err: %v", err)
-				return
-			}
-		}
-	}()
-
-	// task repo
-	s.taskRepo, err = repo.NewTaskRepo(s.ctx, s.cfg.MetadataDB)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init task repo failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.taskRepo != nil {
-			if err := s.taskRepo.Close(s.ctx); err != nil {
-				log.Ctx(s.ctx).Error().Msgf("close task repo failed, err: %v", err)
 				return
 			}
 		}
@@ -204,21 +171,6 @@ func (s *server) Start() error {
 		if err != nil && s.emailRepo != nil {
 			if err := s.emailRepo.Close(s.ctx); err != nil {
 				log.Ctx(s.ctx).Error().Msgf("close email repo failed, err: %v", err)
-				return
-			}
-		}
-	}()
-
-	// query repo
-	s.queryRepo, err = repo.NewQueryRepo(s.ctx, s.cfg.QueryDB, s.tagRepo)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init query repo failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.queryRepo != nil {
-			if err := s.queryRepo.Close(s.ctx); err != nil {
-				log.Ctx(s.ctx).Error().Msgf("close query repo failed, err: %v", err)
 				return
 			}
 		}
@@ -276,6 +228,12 @@ func (s *server) Start() error {
 	// activation repo
 	s.activationRepo = repo.NewActivationRepo(s.ctx, s.baseRepo)
 
+	// session repo
+	s.sessionRepo = repo.NewSessionRepo(s.ctx, s.baseRepo)
+
+	// tag repo
+	s.tagRepo = repo.NewTagRepo(s.ctx, s.baseRepo)
+
 	// ===== init deps ===== //
 
 	s.emailService, err = dep.NewEmailService(s.ctx, s.cfg)
@@ -295,13 +253,12 @@ func (s *server) Start() error {
 	// ===== init handlers ===== //
 
 	s.tagHandler = handler.NewTagHandler(s.tagRepo)
-	s.segmentHandler = handler.NewSegmentHandler(s.cfg, s.tagRepo, s.segmentRepo, s.queryRepo)
+	s.segmentHandler = handler.NewSegmentHandler(s.cfg, s.tagRepo, s.segmentRepo)
 	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
-	s.taskHandler = handler.NewTaskHandler(s.fileRepo, s.taskRepo, s.tagRepo, s.queryRepo, s.mappingIDHandler)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
 	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailHandler, s.emailService, s.segmentHandler, s.campaignEmailRepo, s.campaignLogRepo)
 	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.userRepo, s.activationRepo, s.emailService)
-	s.userHandler = handler.NewUserHandler(s.userRepo, s.tenantRepo, s.activationRepo)
+	s.userHandler = handler.NewUserHandler(s.userRepo, s.tenantRepo, s.activationRepo, s.sessionRepo)
 
 	// ===== start server ===== //
 
@@ -315,7 +272,7 @@ func (s *server) Start() error {
 				return s.ctx
 			},
 			Addr:    addr,
-			Handler: middleware.Log(cors.Default().Handler(s.registerRoutes())),
+			Handler: router.Log(cors.Default().Handler(s.registerRoutes())),
 		}
 		err := httpServer.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -334,13 +291,6 @@ func (s *server) Stop() error {
 		}
 	}
 
-	if s.tagRepo != nil {
-		if err := s.tagRepo.Close(s.ctx); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close tag repo failed, err: %v", err)
-			return err
-		}
-	}
-
 	if s.segmentRepo != nil {
 		if err := s.segmentRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close segment repo failed, err: %v", err)
@@ -355,13 +305,6 @@ func (s *server) Stop() error {
 		}
 	}
 
-	if s.taskRepo != nil {
-		if err := s.taskRepo.Close(s.ctx); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close task repo failed, err: %v", err)
-			return err
-		}
-	}
-
 	if s.mappingIDRepo != nil {
 		if err := s.mappingIDRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close mapping id repo failed, err: %v", err)
@@ -372,13 +315,6 @@ func (s *server) Stop() error {
 	if s.emailRepo != nil {
 		if err := s.emailRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close email repo failed, err: %v", err)
-			return err
-		}
-	}
-
-	if s.queryRepo != nil {
-		if err := s.queryRepo.Close(s.ctx); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close query repo failed, err: %v", err)
 			return err
 		}
 	}
@@ -439,6 +375,9 @@ func (s *server) registerRoutes() http.Handler {
 				return s.tagHandler.GetTags(ctx, req.(*handler.GetTagsRequest), res.(*handler.GetTagsResponse))
 			},
 		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
 	})
 
 	// get_segment
@@ -478,6 +417,9 @@ func (s *server) registerRoutes() http.Handler {
 				return s.tagHandler.CountTags(ctx, req.(*handler.CountTagsRequest), res.(*handler.CountTagsResponse))
 			},
 		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
 	})
 
 	// count_segments
@@ -503,6 +445,9 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.tagHandler.CreateTag(ctx, req.(*handler.CreateTagRequest), res.(*handler.CreateTagResponse))
 			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
 		},
 	})
 
@@ -541,19 +486,6 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.PreviewUdResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.segmentHandler.PreviewUd(ctx, req.(*handler.PreviewUdRequest), res.(*handler.PreviewUdResponse))
-			},
-		},
-	})
-
-	// upload_file
-	r.RegisterHttpRoute(&router.HttpRoute{
-		Path:   config.PathCreateFileUploadTask,
-		Method: http.MethodPost,
-		Handler: router.Handler{
-			Req: new(handler.CreateFileUploadTaskRequest),
-			Res: new(handler.CreateFileUploadTaskResponse),
-			HandleFunc: func(ctx context.Context, req, res interface{}) error {
-				return s.taskHandler.CreateFileUploadTask(ctx, req.(*handler.CreateFileUploadTaskRequest), res.(*handler.CreateFileUploadTaskResponse))
 			},
 		},
 	})
@@ -762,6 +694,19 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.IsTenantPendingInitResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.tenantHandler.IsTenantPendingInit(ctx, req.(*handler.IsTenantPendingInitRequest), res.(*handler.IsTenantPendingInitResponse))
+			},
+		},
+	})
+
+	// log_in
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathLogIn,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.LogInRequest),
+			Res: new(handler.LogInResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.userHandler.LogIn(ctx, req.(*handler.LogInRequest), res.(*handler.LogInResponse))
 			},
 		},
 	})

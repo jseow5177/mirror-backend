@@ -4,17 +4,18 @@ USE metadata_db;
 
 CREATE TABLE IF NOT EXISTS tag_tab (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tenant_id` BIGINT UNSIGNED NOT NULL,
     `name` VARCHAR(64) NOT NULL,
-    `desc` VARCHAR(256) NOT NULL,
+    `tag_desc` VARCHAR(256) NOT NULL,
     `enum` TEXT NOT NULL,
     `value_type` TINYINT UNSIGNED NOT NULL,
     `status` TINYINT UNSIGNED NOT NULL DEFAULT '1',
     `ext_info` TEXT NOT NULL,
+    `creator_id` BIGINT UNSIGNED NOT NULL,
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_name` (`name`),
-    KEY `idx_name_desc_status` (`name`, `desc`, `status`)
+    UNIQUE KEY `idx_tenant_id_name_status` (`tenant_id`, `name`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS segment_tab (
@@ -41,21 +42,6 @@ CREATE TABLE IF NOT EXISTS email_tab (
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
     KEY `idx_name_email_desc_status` (`name`, `email_desc`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS task_tab (
-    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `tag_id` BIGINT UNSIGNED NOT NULL,
-    `tag_value` VARCHAR(256) NOT NULL DEFAULT '',
-    `file_name` VARCHAR(64) NOT NULL,
-    `file_key` VARCHAR(64) NOT NULL,
-    `url` VARCHAR(256) NOT NULL,
-    `status` TINYINT UNSIGNED NOT NULL,
-    `create_time` BIGINT UNSIGNED NOT NULL,
-    `update_time` BIGINT UNSIGNED NOT NULL,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_key` (`file_key`),
-    KEY `idx_tag_id_status_action` (`tag_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS campaign_tab (
@@ -134,11 +120,10 @@ CREATE TABLE IF NOT EXISTS session_tab (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `user_id` BIGINT UNSIGNED NOT NULL,
     `token_hash` VARCHAR(128) NOT NULL,
-    `token_type` TINYINT UNSIGNED NOT NULL,
     `expire_time` BIGINT UNSIGNED NOT NULL,
     `create_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_token_status` (`token_hash`, `token_type`)
+    UNIQUE KEY `idx_token_hash_expire_time` (`token_hash`, `expire_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE DATABASE IF NOT EXISTS mapping_id_db;
