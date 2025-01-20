@@ -28,6 +28,8 @@ func NewEmailHandler(emailRepo repo.EmailRepo) EmailHandler {
 }
 
 type CreateEmailRequest struct {
+	ContextInfo
+
 	Name      *string `json:"name,omitempty"`
 	EmailDesc *string `json:"email_desc,omitempty"`
 	Json      *string `json:"json,omitempty"`
@@ -42,6 +44,8 @@ func (req *CreateEmailRequest) ToEmail() *entity.Email {
 		Json:       req.Json,
 		Html:       req.Html,
 		Status:     entity.EmailStatusNormal,
+		CreatorID:  goutil.Uint64(req.GetUserID()),
+		TenantID:   goutil.Uint64(req.GetTenantID()),
 		CreateTime: goutil.Uint64(uint64(now.Unix())),
 		UpdateTime: goutil.Uint64(uint64(now.Unix())),
 	}
@@ -52,9 +56,10 @@ type CreateEmailResponse struct {
 }
 
 var CreateEmailValidator = validator.MustForm(map[string]validator.Validator{
-	"name":       ResourceNameValidator(false),
-	"email_desc": ResourceDescValidator(false),
-	"json":       &validator.String{},
+	"ContextInfo": ContextInfoValidator,
+	"name":        ResourceNameValidator(false),
+	"email_desc":  ResourceDescValidator(false),
+	"json":        &validator.String{},
 	"html": &validator.String{
 		Validators: []validator.StringFunc{goutil.IsBase64EncodedHTML},
 	},
@@ -79,7 +84,16 @@ func (h *emailHandler) CreateEmail(ctx context.Context, req *CreateEmailRequest,
 }
 
 type GetEmailRequest struct {
+	ContextInfo
+
 	EmailID *uint64 `json:"email_id,omitempty"`
+}
+
+func (r *GetEmailRequest) GetEmailID() uint64 {
+	if r != nil && r.EmailID != nil {
+		return *r.EmailID
+	}
+	return 0
 }
 
 type GetEmailResponse struct {
@@ -87,7 +101,8 @@ type GetEmailResponse struct {
 }
 
 var GetEmailValidator = validator.MustForm(map[string]validator.Validator{
-	"email_id": &validator.UInt64{},
+	"ContextInfo": ContextInfoValidator,
+	"email_id":    &validator.UInt64{},
 })
 
 func (h *emailHandler) GetEmail(ctx context.Context, req *GetEmailRequest, res *GetEmailResponse) error {
@@ -95,9 +110,7 @@ func (h *emailHandler) GetEmail(ctx context.Context, req *GetEmailRequest, res *
 		return errutil.ValidationError(err)
 	}
 
-	email, err := h.emailRepo.Get(ctx, &repo.EmailFilter{
-		ID: req.EmailID,
-	})
+	email, err := h.emailRepo.GetByID(ctx, req.GetTenantID(), req.GetEmailID())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get email err: %v", err)
 		return err
@@ -109,19 +122,29 @@ func (h *emailHandler) GetEmail(ctx context.Context, req *GetEmailRequest, res *
 }
 
 type GetEmailsRequest struct {
-	Name       *string            `json:"name,omitempty"`
-	EmailDesc  *string            `json:"email_desc,omitempty"`
-	Pagination *entity.Pagination `json:"pagination,omitempty"`
+	ContextInfo
+
+	Keyword    *string          `json:"keyword,omitempty"`
+	Pagination *repo.Pagination `json:"pagination,omitempty"`
+}
+
+func (r *GetEmailsRequest) GetKeyword() string {
+	if r != nil && r.Keyword != nil {
+		return *r.Keyword
+	}
+	return ""
 }
 
 type GetEmailsResponse struct {
-	Emails     []*entity.Email    `json:"emails"`
-	Pagination *entity.Pagination `json:"pagination,omitempty"`
+	Emails     []*entity.Email  `json:"emails"`
+	Pagination *repo.Pagination `json:"pagination,omitempty"`
 }
 
 var GetEmailsValidator = validator.MustForm(map[string]validator.Validator{
-	"name":       ResourceNameValidator(true),
-	"email_desc": ResourceDescValidator(true),
+	"ContextInfo": ContextInfoValidator,
+	"keyword": &validator.String{
+		Optional: true,
+	},
 	"pagination": PaginationValidator(),
 })
 
@@ -131,17 +154,10 @@ func (h *emailHandler) GetEmails(ctx context.Context, req *GetEmailsRequest, res
 	}
 
 	if req.Pagination == nil {
-		req.Pagination = new(entity.Pagination)
+		req.Pagination = new(repo.Pagination)
 	}
 
-	emails, pagination, err := h.emailRepo.GetMany(ctx, &repo.EmailFilter{
-		Name:      req.Name,
-		EmailDesc: req.EmailDesc,
-		Pagination: &repo.Pagination{
-			Page:  req.Pagination.Page,
-			Limit: req.Pagination.Limit,
-		},
-	})
+	emails, pagination, err := h.emailRepo.GetByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get emails failed: %v", err)
 		return err

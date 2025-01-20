@@ -168,8 +168,8 @@ func (req *CreateSegmentRequest) ToSegment() *entity.Segment {
 		SegmentDesc: req.SegmentDesc,
 		Criteria:    req.Criteria,
 		Status:      entity.SegmentStatusNormal,
-		CreatorID:   req.User.ID,
-		TenantID:    req.Tenant.ID,
+		CreatorID:   goutil.Uint64(req.GetUserID()),
+		TenantID:    goutil.Uint64(req.GetTenantID()),
 		CreateTime:  goutil.Uint64(uint64(now.Unix())),
 		UpdateTime:  goutil.Uint64(uint64(now.Unix())),
 	}

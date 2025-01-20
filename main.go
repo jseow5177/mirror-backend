@@ -150,19 +150,7 @@ func (s *server) Start() error {
 	}()
 
 	// email repo
-	s.emailRepo, err = repo.NewEmailRepo(s.ctx, s.cfg.MetadataDB)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init email repo failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.emailRepo != nil {
-			if err := s.emailRepo.Close(s.ctx); err != nil {
-				log.Ctx(s.ctx).Error().Msgf("close email repo failed, err: %v", err)
-				return
-			}
-		}
-	}()
+	s.emailRepo = repo.NewEmailRepo(s.ctx, s.baseRepo)
 
 	// campaign_email repo
 	s.campaignEmailRepo, err = repo.NewCampaignEmailRepo(s.ctx, s.cfg.MetadataDB)
@@ -289,13 +277,6 @@ func (s *server) Stop() error {
 	if s.mappingIDRepo != nil {
 		if err := s.mappingIDRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close mapping id repo failed, err: %v", err)
-			return err
-		}
-	}
-
-	if s.emailRepo != nil {
-		if err := s.emailRepo.Close(s.ctx); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close email repo failed, err: %v", err)
 			return err
 		}
 	}
@@ -526,6 +507,9 @@ func (s *server) registerRoutes() http.Handler {
 				return s.emailHandler.CreateEmail(ctx, req.(*handler.CreateEmailRequest), res.(*handler.CreateEmailResponse))
 			},
 		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
 	})
 
 	// get_emails
@@ -538,6 +522,9 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.emailHandler.GetEmails(ctx, req.(*handler.GetEmailsRequest), res.(*handler.GetEmailsResponse))
 			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
 		},
 	})
 

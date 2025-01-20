@@ -36,15 +36,17 @@ CREATE TABLE IF NOT EXISTS segment_tab (
 
 CREATE TABLE IF NOT EXISTS email_tab (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tenant_id` BIGINT UNSIGNED NOT NULL,
     `name` VARCHAR(64) NOT NULL,
     `email_desc` VARCHAR(256) NOT NULL,
     `json` TEXT NOT NULL,
     `html` TEXT NOT NULL,
     `status` TINYINT UNSIGNED NOT NULL DEFAULT '1',
+    `creator_id` BIGINT UNSIGNED NOT NULL,
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
-    KEY `idx_name_email_desc_status` (`name`, `email_desc`, `status`)
+    KEY `idx_name_email_desc_status` (`tenant_id`, `name`, `email_desc`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS campaign_tab (
