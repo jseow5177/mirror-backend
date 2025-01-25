@@ -1,19 +1,11 @@
 package repo
 
 import (
-	"cdp/config"
 	"cdp/entity"
 	"cdp/pkg/goutil"
 	"context"
-	"database/sql"
-	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
 	"math"
 )
-
-type LogExtra struct {
-	Link *string
-}
 
 type CampaignLog struct {
 	ID              *uint64
@@ -30,105 +22,109 @@ func (m *CampaignLog) TableName() string {
 }
 
 type CampaignLogRepo interface {
-	BatchCreate(ctx context.Context, campaignLogs []*entity.CampaignLog) error
+	CreateMany(ctx context.Context, campaignLogs []*entity.CampaignLog) error
 	CountTotalUniqueOpen(ctx context.Context, campaignEmailID uint64) (uint64, error)
 	CountClicksByLink(ctx context.Context, campaignEmailID uint64) (map[string]uint64, error)
 	GetAvgOpenTime(ctx context.Context, campaignEmailID uint64) (uint64, error)
-	Close(ctx context.Context) error
 }
 
 type campaignLogRepo struct {
-	orm *gorm.DB
+	baseRepo BaseRepo
 }
 
-func NewCampaignLogRepo(_ context.Context, mysqlCfg config.MySQL) (CampaignLogRepo, error) {
-	orm, err := gorm.Open(mysql.Open(mysqlCfg.ToDSN()), &gorm.Config{})
-	if err != nil {
-		return nil, err
-	}
-	return &campaignLogRepo{orm: orm}, nil
+func NewCampaignLogRepo(_ context.Context, baseRepo BaseRepo) CampaignLogRepo {
+	return &campaignLogRepo{baseRepo: baseRepo}
 }
 
-func (r *campaignLogRepo) BatchCreate(_ context.Context, campaignLogs []*entity.CampaignLog) error {
+func (r *campaignLogRepo) CreateMany(ctx context.Context, campaignLogs []*entity.CampaignLog) error {
 	campaignLogModels := make([]*CampaignLog, 0, len(campaignLogs))
 	for _, campaignLog := range campaignLogs {
 		campaignLogModels = append(campaignLogModels, ToCampaignLogModel(campaignLog))
 	}
 
-	return r.orm.Create(campaignLogModels).Error
+	return r.baseRepo.CreateMany(ctx, new(CampaignLog), campaignLogModels)
 }
 
-func (r *campaignLogRepo) CountTotalUniqueOpen(_ context.Context, campaignEmailID uint64) (uint64, error) {
-	var count int64
-	if err := r.orm.
-		Model(new(CampaignLog)).
-		Where("campaign_email_id = ? AND event = ?", campaignEmailID, entity.EventUniqueOpened).
-		Count(&count).Error; err != nil {
+func (r *campaignLogRepo) CountTotalUniqueOpen(ctx context.Context, campaignEmailID uint64) (uint64, error) {
+	return r.baseRepo.Count(ctx, new(CampaignLog), &Filter{
+		Conditions: []*Condition{
+			{
+				Field:         "campaign_email_id",
+				Value:         campaignEmailID,
+				Op:            OpEq,
+				NextLogicalOp: LogicalOpAnd,
+			},
+			{
+				Field: "event",
+				Value: entity.EventUniqueOpened,
+				Op:    OpEq,
+			},
+		},
+	})
+}
+
+func (r *campaignLogRepo) GetAvgOpenTime(ctx context.Context, campaignEmailID uint64) (uint64, error) {
+	avgOpenTime, err := r.baseRepo.Avg(ctx, new(CampaignLog), "event_time", &Filter{
+		Conditions: []*Condition{
+			{
+				Field:         "campaign_email_id",
+				Value:         campaignEmailID,
+				Op:            OpEq,
+				NextLogicalOp: LogicalOpAnd,
+			},
+			{
+				Field: "event",
+				Value: entity.EventUniqueOpened,
+				Op:    OpEq,
+			},
+		},
+	})
+	if err != nil {
 		return 0, err
 	}
-	return uint64(count), nil
+
+	return uint64(math.Round(avgOpenTime)), nil
 }
 
-func (r *campaignLogRepo) GetAvgOpenTime(_ context.Context, campaignEmailID uint64) (uint64, error) {
-	var avgOpenTime sql.NullFloat64
-	if err := r.orm.
-		Model(new(CampaignLog)).
-		Where("campaign_email_id = ? AND event = ?", campaignEmailID, entity.EventUniqueOpened).
-		Select("avg(event_time)").
-		Scan(&avgOpenTime).Error; err != nil {
-		return 0, err
-	}
-
-	if !avgOpenTime.Valid {
-		return 0, nil
-	}
-
-	return uint64(math.Round(avgOpenTime.Float64)), nil
+type LinkCount struct {
+	Link  string
+	Count uint64
 }
 
-func (r *campaignLogRepo) CountClicksByLink(_ context.Context, campaignEmailID uint64) (map[string]uint64, error) {
-	rows, err := r.orm.Model(new(CampaignLog)).
-		Where("campaign_email_id = ? AND event = ?", campaignEmailID, entity.EventClick).
-		Select("link, COUNT(*) as count").
-		Group("link").
-		Rows()
+func (r *campaignLogRepo) CountClicksByLink(ctx context.Context, campaignEmailID uint64) (map[string]uint64, error) {
+	aggregateFields := map[string]string{
+		"link":  "link",
+		"count": "COUNT(*)",
+	}
+	groupByFields := []string{"link"}
+	filter := &Filter{
+		Conditions: []*Condition{
+			{
+				Field:         "campaign_email_id",
+				Value:         campaignEmailID,
+				Op:            OpEq,
+				NextLogicalOp: LogicalOpAnd,
+			},
+			{
+				Field: "event",
+				Value: entity.EventClick,
+				Op:    OpEq,
+			},
+		},
+	}
+
+	res, err := r.baseRepo.GroupBy(ctx, new(CampaignLog), new(LinkCount), groupByFields, aggregateFields, filter)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
 
 	linkCounts := make(map[string]uint64)
-
-	var (
-		link  string
-		count int64
-	)
-	for rows.Next() {
-		err := rows.Scan(&link, &count)
-		if err != nil {
-			return nil, err
-		}
-		linkCounts[link] = uint64(count)
+	for _, r := range res {
+		linkCount := r.(*LinkCount)
+		linkCounts[linkCount.Link] += linkCount.Count
 	}
 
 	return linkCounts, nil
-}
-
-func (r *campaignLogRepo) Close(_ context.Context) error {
-	if r.orm != nil {
-		sqlDB, err := r.orm.DB()
-		if err != nil {
-			return err
-		}
-
-		err = sqlDB.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func ToCampaignLogModel(campaignLog *entity.CampaignLog) *CampaignLog {

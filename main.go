@@ -155,17 +155,7 @@ func (s *server) Start() error {
 	s.campaignRepo = repo.NewCampaignRepo(s.ctx, s.baseRepo)
 
 	// campaign log repo
-	s.campaignLogRepo, err = repo.NewCampaignLogRepo(s.ctx, s.cfg.MetadataDB)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init campaign log repo failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.campaignLogRepo != nil {
-			log.Ctx(s.ctx).Error().Msgf("close campaign log repo failed, err: %v", err)
-			return
-		}
-	}()
+	s.campaignLogRepo = repo.NewCampaignLogRepo(s.ctx, s.baseRepo)
 
 	// tenant repo
 	s.tenantRepo = repo.NewTenantRepo(s.ctx, s.baseRepo)
@@ -249,13 +239,6 @@ func (s *server) Stop() error {
 	if s.mappingIDRepo != nil {
 		if err := s.mappingIDRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close mapping id repo failed, err: %v", err)
-			return err
-		}
-	}
-
-	if s.campaignLogRepo != nil {
-		if err := s.campaignLogRepo.Close(s.ctx); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close campaign log repo failed, err: %v", err)
 			return err
 		}
 	}

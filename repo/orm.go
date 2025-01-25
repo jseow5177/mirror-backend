@@ -5,9 +5,12 @@ import (
 	"cdp/config"
 	"cdp/pkg/goutil"
 	"context"
+	"database/sql"
+	"fmt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"reflect"
+	"strings"
 )
 
 type txKey struct{}
@@ -24,6 +27,8 @@ type BaseRepo interface {
 	Get(ctx context.Context, model interface{}, f *Filter) error
 	GetMany(ctx context.Context, model interface{}, f *Filter) ([]interface{}, *Pagination, error)
 	Count(ctx context.Context, model interface{}, f *Filter) (uint64, error)
+	Avg(ctx context.Context, model interface{}, field string, f *Filter) (float64, error)
+	GroupBy(ctx context.Context, model, dest interface{}, groupByFields []string, aggregateFields map[string]string, f *Filter) ([]interface{}, error)
 	Update(ctx context.Context, model interface{}) error
 	Close(ctx context.Context) error
 }
@@ -42,31 +47,82 @@ func NewBaseRepo(_ context.Context, mysqlCfg config.MySQL) (BaseRepo, error) {
 	}, nil
 }
 
-func (r *baseRepo) BuildConditions(baseConditions, extraConditions []*Condition) []*Condition {
-	if len(baseConditions) == 0 {
-		return extraConditions
-	} else {
-		if len(extraConditions) == 0 {
-			baseConditions[len(baseConditions)-1].NextLogicalOp = ""
-		} else {
-			baseConditions[len(baseConditions)-1].NextLogicalOp = LogicalOpAnd
-		}
-		return append(baseConditions, extraConditions...)
-	}
-}
-
 func (r *baseRepo) Create(ctx context.Context, data interface{}) error {
 	return r.getDb(ctx).Create(data).Error
 }
 
 func (r *baseRepo) Count(ctx context.Context, model interface{}, f *Filter) (uint64, error) {
-	sql, args := ToSqlWithArgs(f)
+	sqlQuery, args := ToSqlWithArgs(f)
 
 	var count int64
-	if err := r.getDb(ctx).Model(model).Where(sql, args...).Count(&count).Error; err != nil {
+	if err := r.getDb(ctx).Model(model).Where(sqlQuery, args...).Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return uint64(count), nil
+}
+
+func (r *baseRepo) Avg(ctx context.Context, model interface{}, field string, f *Filter) (float64, error) {
+	sqlQuery, args := ToSqlWithArgs(f)
+
+	var avg sql.NullFloat64
+	if err := r.getDb(ctx).
+		Model(model).
+		Where(sqlQuery, args...).
+		Select(fmt.Sprintf("avg(%s)", field)).
+		Scan(&avg).Error; err != nil {
+		return 0, err
+	}
+
+	if !avg.Valid {
+		return 0, nil
+	}
+
+	return avg.Float64, nil
+}
+
+func (r *baseRepo) GroupBy(ctx context.Context, model, dest interface{}, groupByFields []string, aggregateFields map[string]string, f *Filter) ([]interface{}, error) {
+	var (
+		selectFields string
+		fieldCount   int
+	)
+	for alias, expr := range aggregateFields {
+		selectFields += fmt.Sprintf("%s AS %s", expr, alias)
+		fieldCount++
+
+		if fieldCount < len(aggregateFields) {
+			selectFields += ", "
+		}
+	}
+
+	var (
+		db = r.getDb(ctx)
+
+		sqlQuery, args = ToSqlWithArgs(f)
+	)
+
+	rows, err := db.
+		Model(model).
+		Where(sqlQuery, args...).
+		Select(selectFields).
+		Group(strings.Join(groupByFields, ", ")).
+		Rows()
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	res := make([]interface{}, 0)
+	for rows.Next() {
+		if err := db.ScanRows(rows, &dest); err != nil {
+			return nil, err
+		}
+		res = append(res, dest)
+	}
+
+	return res, nil
 }
 
 func (r *baseRepo) CreateMany(ctx context.Context, model interface{}, data interface{}) error {
@@ -74,16 +130,16 @@ func (r *baseRepo) CreateMany(ctx context.Context, model interface{}, data inter
 }
 
 func (r *baseRepo) Get(ctx context.Context, model interface{}, f *Filter) error {
-	sql, args := ToSqlWithArgs(f)
+	sqlQuery, args := ToSqlWithArgs(f)
 
-	return r.getDb(ctx).Model(model).Where(sql, args...).First(model).Error
+	return r.getDb(ctx).Model(model).Where(sqlQuery, args...).First(model).Error
 }
 
 func (r *baseRepo) GetMany(ctx context.Context, model interface{}, f *Filter) ([]interface{}, *Pagination, error) {
 	var (
-		db        = r.getDb(ctx)
-		sql, args = ToSqlWithArgs(f)
-		query     = db.Model(model).Where(sql, args...)
+		db             = r.getDb(ctx)
+		sqlQuery, args = ToSqlWithArgs(f)
+		query          = db.Model(model).Where(sqlQuery, args...)
 	)
 
 	var count int64

@@ -445,7 +445,7 @@ func (h *campaignHandler) OnEmailAction(ctx context.Context, req *OnEmailActionR
 		CreateTime:      goutil.Uint64(uint64(time.Now().Unix())),
 	}
 
-	if err := h.campaignLogRepo.BatchCreate(ctx, []*entity.CampaignLog{campaignLog}); err != nil {
+	if err := h.campaignLogRepo.CreateMany(ctx, []*entity.CampaignLog{campaignLog}); err != nil {
 		log.Ctx(ctx).Error().Msgf("create campaign log failed: %v", err)
 		return err
 	}

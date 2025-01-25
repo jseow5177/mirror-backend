@@ -71,7 +71,7 @@ type CampaignResult struct {
 	TotalUniqueOpenCount *uint64           `json:"total_unique_open_count,omitempty"`
 	TotalClickCount      *uint64           `json:"total_click_count,omitempty"`
 	AvgOpenTime          *uint64           `json:"avg_open_time,omitempty"`
-	ClickCountsByLink    map[string]uint64 `json:"click_counts_by_link,omitempty"`
+	ClickCountsByLink    map[string]uint64 `json:"click_counts_by_link"`
 }
 
 type CampaignEmail struct {

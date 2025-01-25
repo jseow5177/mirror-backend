@@ -9,7 +9,6 @@ import (
 	"cdp/repo"
 	"context"
 	"errors"
-	"fmt"
 	"github.com/rs/zerolog/log"
 	"time"
 )
@@ -91,8 +90,6 @@ func (h *segmentHandler) GetSegment(ctx context.Context, req *GetSegmentRequest,
 	if err := GetSegmentValidator.Validate(req); err != nil {
 		return errutil.ValidationError(err)
 	}
-
-	fmt.Println(req.GetTenantID())
 
 	segment, err := h.segmentRepo.GetByID(ctx, req.GetTenantID(), req.GetSegmentID())
 	if err != nil {
