@@ -30,19 +30,18 @@ type server struct {
 	cfg *config.Config
 
 	// repos
-	baseRepo          repo.BaseRepo
-	tagRepo           repo.TagRepo
-	segmentRepo       repo.SegmentRepo
-	fileRepo          repo.FileRepo
-	mappingIDRepo     repo.MappingIDRepo
-	emailRepo         repo.EmailRepo
-	campaignRepo      repo.CampaignRepo
-	campaignEmailRepo repo.CampaignEmailRepo
-	campaignLogRepo   repo.CampaignLogRepo
-	tenantRepo        repo.TenantRepo
-	userRepo          repo.UserRepo
-	activationRepo    repo.ActivationRepo
-	sessionRepo       repo.SessionRepo
+	baseRepo        repo.BaseRepo
+	tagRepo         repo.TagRepo
+	segmentRepo     repo.SegmentRepo
+	fileRepo        repo.FileRepo
+	mappingIDRepo   repo.MappingIDRepo
+	emailRepo       repo.EmailRepo
+	campaignRepo    repo.CampaignRepo
+	campaignLogRepo repo.CampaignLogRepo
+	tenantRepo      repo.TenantRepo
+	userRepo        repo.UserRepo
+	activationRepo  repo.ActivationRepo
+	sessionRepo     repo.SessionRepo
 
 	// services
 	emailService dep.EmailService
@@ -152,35 +151,8 @@ func (s *server) Start() error {
 	// email repo
 	s.emailRepo = repo.NewEmailRepo(s.ctx, s.baseRepo)
 
-	// campaign_email repo
-	s.campaignEmailRepo, err = repo.NewCampaignEmailRepo(s.ctx, s.cfg.MetadataDB)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init campaign email repo failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.campaignEmailRepo != nil {
-			if err := s.campaignEmailRepo.Close(s.ctx); err != nil {
-				log.Ctx(s.ctx).Error().Msgf("close campaign email repo failed, err: %v", err)
-				return
-			}
-		}
-	}()
-
 	// campaign repo
-	s.campaignRepo, err = repo.NewCampaignRepo(s.ctx, s.cfg.MetadataDB)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init campaign repo failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.campaignRepo != nil {
-			if err := s.campaignRepo.Close(s.ctx); err != nil {
-				log.Ctx(s.ctx).Error().Msgf("close campaign repo failed, err: %v", err)
-				return
-			}
-		}
-	}()
+	s.campaignRepo = repo.NewCampaignRepo(s.ctx, s.baseRepo)
 
 	// campaign log repo
 	s.campaignLogRepo, err = repo.NewCampaignLogRepo(s.ctx, s.cfg.MetadataDB)
@@ -232,7 +204,7 @@ func (s *server) Start() error {
 	s.segmentHandler = handler.NewSegmentHandler(s.cfg, s.tagRepo, s.segmentRepo)
 	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
-	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailHandler, s.emailService, s.segmentHandler, s.campaignEmailRepo, s.campaignLogRepo)
+	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailService, s.segmentHandler, s.campaignLogRepo, s.emailHandler)
 	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.userRepo, s.activationRepo, s.emailService)
 	s.userHandler = handler.NewUserHandler(s.userRepo, s.tenantRepo, s.activationRepo, s.sessionRepo)
 
@@ -277,13 +249,6 @@ func (s *server) Stop() error {
 	if s.mappingIDRepo != nil {
 		if err := s.mappingIDRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close mapping id repo failed, err: %v", err)
-			return err
-		}
-	}
-
-	if s.campaignRepo != nil {
-		if err := s.campaignRepo.Close(s.ctx); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close campaign repo failed, err: %v", err)
 			return err
 		}
 	}
@@ -539,6 +504,9 @@ func (s *server) registerRoutes() http.Handler {
 				return s.campaignHandler.CreateCampaign(ctx, req.(*handler.CreateCampaignRequest), res.(*handler.CreateCampaignResponse))
 			},
 		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
 	})
 
 	// run_campaigns
@@ -578,6 +546,9 @@ func (s *server) registerRoutes() http.Handler {
 				return s.campaignHandler.GetCampaigns(ctx, req.(*handler.GetCampaignsRequest), res.(*handler.GetCampaignsResponse))
 			},
 		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
 	})
 
 	// get_campaign
@@ -590,6 +561,9 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.campaignHandler.GetCampaign(ctx, req.(*handler.GetCampaignRequest), res.(*handler.GetCampaignResponse))
 			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
 		},
 	})
 

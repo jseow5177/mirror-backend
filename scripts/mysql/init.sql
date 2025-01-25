@@ -46,21 +46,24 @@ CREATE TABLE IF NOT EXISTS email_tab (
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
-    KEY `idx_name_email_desc_status` (`tenant_id`, `name`, `email_desc`, `status`)
+    KEY `idx_tenant_id_name_email_desc_status` (`tenant_id`, `name`, `email_desc`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS campaign_tab (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(64) NOT NULL,
+    `tenant_id` BIGINT UNSIGNED NOT NULL,
     `campaign_desc` VARCHAR(256) NOT NULL,
     `segment_id` BIGINT UNSIGNED NOT NULL,
     `segment_size` BIGINT UNSIGNED NOT NULL,
     `progress` TINYINT UNSIGNED NOT NULL,
     `schedule` BIGINT UNSIGNED NOT NULL,
     `status` TINYINT UNSIGNED NOT NULL,
+    `creator_id` BIGINT UNSIGNED NOT NULL,
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,
-    PRIMARY KEY (`id`)
+    PRIMARY KEY (`id`),
+    KEY `idx_tenant_id_name_campaign_desc_status` (`tenant_id`, `name`, `campaign_desc`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS campaign_email_tab (

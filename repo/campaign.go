@@ -1,19 +1,30 @@
 package repo
 
 import (
-	"cdp/config"
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
 	"context"
 	"errors"
-	"gorm.io/driver/mysql"
+	"fmt"
 	"gorm.io/gorm"
 )
 
 var (
 	ErrCampaignNotFound = errutil.NotFoundError(errors.New("campaign not found"))
 )
+
+type CampaignEmail struct {
+	ID         *uint64
+	CampaignID *uint64
+	EmailID    *uint64
+	Subject    *string
+	Ratio      *uint64
+}
+
+func (m *CampaignEmail) TableName() string {
+	return "campaign_email_tab"
+}
 
 type Campaign struct {
 	ID           *uint64
@@ -24,6 +35,8 @@ type Campaign struct {
 	Schedule     *uint64
 	Progress     *uint64
 	Status       *uint32
+	CreatorID    *uint64
+	TenantID     *uint64
 	CreateTime   *uint64
 	UpdateTime   *uint64
 }
@@ -48,64 +61,56 @@ func (m *Campaign) GetID() uint64 {
 
 type CampaignRepo interface {
 	Create(ctx context.Context, campaign *entity.Campaign) (uint64, error)
-	Get(ctx context.Context, campaignID uint64) (*entity.Campaign, error)
-	Update(ctx context.Context, campaignID uint64, campaign *entity.Campaign) error
-	GetMany(ctx context.Context, f *Filter) ([]*entity.Campaign, *entity.Pagination, error)
-	Close(ctx context.Context) error
+	GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Campaign, *Pagination, error)
+	GetPendingCampaigns(ctx context.Context, tenantID uint64, schedule uint64) ([]*entity.Campaign, error)
+	GetByID(ctx context.Context, tenantID, campaignID uint64) (*entity.Campaign, error)
+	Update(ctx context.Context, tenant *entity.Campaign) error
 }
 
 type campaignRepo struct {
-	orm *gorm.DB
+	baseRepo BaseRepo
 }
 
-func NewCampaignRepo(_ context.Context, mysqlCfg config.MySQL) (CampaignRepo, error) {
-	orm, err := gorm.Open(mysql.Open(mysqlCfg.ToDSN()), &gorm.Config{})
-	if err != nil {
-		return nil, err
+func NewCampaignRepo(_ context.Context, baseRepo BaseRepo) CampaignRepo {
+	return &campaignRepo{baseRepo: baseRepo}
+}
+
+func (r *campaignRepo) GetByID(ctx context.Context, tenantID, campaignID uint64) (*entity.Campaign, error) {
+	return r.get(ctx, tenantID, []*Condition{
+		{
+			Field: "id",
+			Value: campaignID,
+			Op:    OpEq,
+		},
+	}, true)
+}
+
+func (r *campaignRepo) Update(ctx context.Context, campaign *entity.Campaign) error {
+	if err := r.baseRepo.Update(ctx, ToCampaignModel(campaign)); err != nil {
+		return err
 	}
-	return &campaignRepo{orm: orm}, nil
+
+	return nil
 }
 
-func (r *campaignRepo) Get(_ context.Context, campaignID uint64) (*entity.Campaign, error) {
-	campaignModel := new(Campaign)
-	if err := r.orm.Where("id = ?", campaignID).First(campaignModel).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrCampaignNotFound
-		}
-		return nil, err
-	}
-
-	return ToCampaign(campaignModel), nil
-}
-
-func (r *campaignRepo) Update(_ context.Context, campaignID uint64, campaign *entity.Campaign) error {
+func (r *campaignRepo) Create(ctx context.Context, campaign *entity.Campaign) (uint64, error) {
 	campaignModel := ToCampaignModel(campaign)
-	return r.orm.
-		Model(campaignModel).
-		Where("id = ?", campaignID).
-		Updates(campaignModel).
-		Error
-}
 
-func (r *campaignRepo) Create(_ context.Context, campaign *entity.Campaign) (uint64, error) {
-	campaignModel := ToCampaignModel(campaign)
-	if err := r.orm.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&campaignModel).Error; err != nil {
+	if err := r.baseRepo.RunTx(ctx, func(ctx context.Context) error {
+		if err := r.baseRepo.Create(ctx, campaignModel); err != nil {
 			return err
 		}
 
-		campaign.ID = campaignModel.ID
+		var (
+			campaignEmails      = campaign.CampaignEmails
+			campaignEmailModels = make([]*CampaignEmail, len(campaignEmails))
+		)
+		for i, campaignEmail := range campaign.CampaignEmails {
+			campaignEmailModels[i] = ToCampaignEmailModel(campaignModel.GetID(), campaignEmail)
+		}
 
-		for _, campaignEmail := range campaign.CampaignEmails {
-			campaignEmail.CampaignID = campaignModel.ID
-
-			campaignEmailModel := ToCampaignEmailModel(campaignEmail)
-
-			if err := tx.Create(&campaignEmailModel).Error; err != nil {
-				return err
-			}
-
-			campaignEmail.ID = campaignEmailModel.ID
+		if err := r.baseRepo.CreateMany(ctx, new(CampaignEmail), campaignEmailModels); err != nil {
+			return err
 		}
 
 		return nil
@@ -116,81 +121,168 @@ func (r *campaignRepo) Create(_ context.Context, campaign *entity.Campaign) (uin
 	return campaignModel.GetID(), nil
 }
 
-func (r *campaignRepo) GetMany(_ context.Context, f *Filter) ([]*entity.Campaign, *entity.Pagination, error) {
-	cond, args := ToSqlWithArgs(f)
-
-	var count int64
-	if err := r.orm.Model(new(Campaign)).Where(cond, args...).Count(&count).Error; err != nil {
-		return nil, nil, err
+func (r *campaignRepo) GetPendingCampaigns(ctx context.Context, tenantID uint64, schedule uint64) ([]*entity.Campaign, error) {
+	campaigns, _, err := r.getMany(ctx, tenantID, []*Condition{
+		{
+			Field:         "status",
+			Op:            OpEq,
+			Value:         entity.CampaignStatusPending,
+			NextLogicalOp: LogicalOpAnd,
+		},
+		{
+			Field: "schedule",
+			Op:    OpLte,
+			Value: schedule,
+		},
+	}, false, nil)
+	if err != nil {
+		return nil, err
 	}
-
-	var (
-		limit = f.Pagination.GetLimit()
-		page  = f.Pagination.GetPage()
-	)
-	if page == 0 {
-		page = 1
-	}
-
-	var (
-		offset     = (page - 1) * limit
-		mCampaigns = make([]*Campaign, 0)
-	)
-	query := r.orm.Where(cond, args...).Offset(int(offset))
-	if limit > 0 {
-		query = query.Limit(int(limit + 1))
-	}
-
-	if err := query.Find(&mCampaigns).Error; err != nil {
-		return nil, nil, err
-	}
-
-	var hasNext bool
-	if limit > 0 && len(mCampaigns) > int(limit) {
-		hasNext = true
-		mCampaigns = mCampaigns[:limit]
-	}
-
-	campaigns := make([]*entity.Campaign, len(mCampaigns))
-	for i, mCampaign := range mCampaigns {
-		campaigns[i] = ToCampaign(mCampaign)
-	}
-
-	return campaigns, &entity.Pagination{
-		Page:    goutil.Uint32(page),
-		Limit:   f.Pagination.Limit, // may be nil
-		HasNext: goutil.Bool(hasNext),
-		Total:   goutil.Int64(count),
-	}, nil
+	return campaigns, nil
 }
 
-func (r *campaignRepo) Close(_ context.Context) error {
-	if r.orm != nil {
-		sqlDB, err := r.orm.DB()
-		if err != nil {
-			return err
-		}
+func (r *campaignRepo) GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Campaign, *Pagination, error) {
+	return r.getMany(ctx, tenantID, []*Condition{
+		{
+			Field:         "LOWER(name)",
+			Value:         fmt.Sprintf("%%%s%%", keyword),
+			Op:            OpLike,
+			NextLogicalOp: LogicalOpOr,
+			OpenBracket:   true,
+		},
+		{
+			Field:        "LOWER(campaign_desc)",
+			Value:        fmt.Sprintf("%%%s%%", keyword),
+			Op:           OpLike,
+			CloseBracket: true,
+		},
+	}, true, p)
+}
 
-		err = sqlDB.Close()
-		if err != nil {
-			return err
-		}
+func (r *campaignRepo) getMany(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool, p *Pagination) ([]*entity.Campaign, *Pagination, error) {
+	baseConditions := make([]*Condition, 0)
+	if tenantID != 0 {
+		baseConditions = append(baseConditions, r.getBaseConditions(tenantID)...)
 	}
-	return nil
+
+	res, pNew, err := r.baseRepo.GetMany(ctx, new(Tag), &Filter{
+		Conditions: append(baseConditions, r.mayAddDeleteFilter(conditions, filterDelete)...),
+		Pagination: p,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var (
+		campaigns   = make([]*entity.Campaign, 0, len(res))
+		campaignIDs = make([]uint64, 0, len(res))
+	)
+	for _, m := range res {
+		campaign := ToCampaign(m.(*Campaign))
+		campaigns = append(campaigns, campaign)
+		campaignIDs = append(campaignIDs, campaign.GetID())
+	}
+
+	campaignEmails, err := r.getCampaignEmails(ctx, campaignIDs...)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	campaignIDsToEmails := make(map[uint64][]*entity.CampaignEmail)
+	for _, campaignEmail := range campaignEmails {
+		campaignIDsToEmails[campaignEmail.GetCampaignID()] = append(campaignIDsToEmails[campaignEmail.GetCampaignID()], campaignEmail)
+	}
+
+	for _, campaign := range campaigns {
+		campaign.CampaignEmails = campaignIDsToEmails[campaign.GetID()]
+	}
+
+	return campaigns, pNew, nil
+}
+
+func (r *campaignRepo) get(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool) (*entity.Campaign, error) {
+	campaign := new(Campaign)
+
+	if err := r.baseRepo.Get(ctx, campaign, &Filter{
+		Conditions: append(r.getBaseConditions(tenantID), r.mayAddDeleteFilter(conditions, filterDelete)...),
+	}); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrCampaignNotFound
+		}
+		return nil, err
+	}
+
+	c := ToCampaign(campaign)
+
+	campaignEmails, err := r.getCampaignEmails(ctx, c.GetID())
+	if err != nil {
+		return nil, err
+	}
+
+	c.CampaignEmails = campaignEmails
+
+	return c, nil
+}
+
+func (r *campaignRepo) getCampaignEmails(ctx context.Context, campaignIDs ...uint64) ([]*entity.CampaignEmail, error) {
+	res, _, err := r.baseRepo.GetMany(ctx, new(CampaignEmail), &Filter{
+		Conditions: []*Condition{
+			{
+				Field: "campaign_id",
+				Value: campaignIDs,
+				Op:    OpIn,
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	campaignEmails := make([]*entity.CampaignEmail, 0, len(res))
+	for _, m := range res {
+		campaignEmails = append(campaignEmails, ToCampaignEmail(m.(*CampaignEmail)))
+	}
+
+	return campaignEmails, nil
+}
+
+func (r *campaignRepo) mayAddDeleteFilter(conditions []*Condition, filterDelete bool) []*Condition {
+	if filterDelete {
+		return append(conditions, &Condition{
+			Field: "status",
+			Value: entity.CampaignStatusDeleted,
+			Op:    OpNotEq,
+		})
+	}
+	return conditions
+}
+
+func (r *campaignRepo) getBaseConditions(tenantID uint64) []*Condition {
+	return []*Condition{
+		{
+			Field:         "tenant_id",
+			Value:         tenantID,
+			Op:            OpEq,
+			NextLogicalOp: LogicalOpAnd,
+		},
+	}
 }
 
 func ToCampaign(campaign *Campaign) *entity.Campaign {
 	return &entity.Campaign{
-		ID:           campaign.ID,
-		Name:         campaign.Name,
-		CampaignDesc: campaign.CampaignDesc,
-		SegmentID:    campaign.SegmentID,
-		SegmentSize:  campaign.SegmentSize,
-		Schedule:     campaign.Schedule,
-		Progress:     campaign.Progress,
-		Status:       entity.CampaignStatus(campaign.GetStatus()),
-		CreateTime:   campaign.CreateTime,
-		UpdateTime:   campaign.UpdateTime,
+		ID:             campaign.ID,
+		Name:           campaign.Name,
+		CampaignDesc:   campaign.CampaignDesc,
+		SegmentID:      campaign.SegmentID,
+		SegmentSize:    campaign.SegmentSize,
+		Schedule:       campaign.Schedule,
+		Progress:       campaign.Progress,
+		TenantID:       campaign.TenantID,
+		CreatorID:      campaign.CreatorID,
+		Status:         entity.CampaignStatus(campaign.GetStatus()),
+		CampaignEmails: nil,
+		CreateTime:     campaign.CreateTime,
+		UpdateTime:     campaign.UpdateTime,
 	}
 }
 
@@ -204,7 +296,29 @@ func ToCampaignModel(campaign *entity.Campaign) *Campaign {
 		Schedule:     campaign.Schedule,
 		Progress:     campaign.Progress,
 		Status:       goutil.Uint32(uint32(campaign.Status)),
+		TenantID:     campaign.TenantID,
+		CreatorID:    campaign.CreatorID,
 		CreateTime:   campaign.CreateTime,
 		UpdateTime:   campaign.UpdateTime,
+	}
+}
+
+func ToCampaignEmail(campaignEmail *CampaignEmail) *entity.CampaignEmail {
+	return &entity.CampaignEmail{
+		ID:             campaignEmail.ID,
+		CampaignID:     campaignEmail.CampaignID,
+		EmailID:        campaignEmail.EmailID,
+		Subject:        campaignEmail.Subject,
+		Ratio:          campaignEmail.Ratio,
+		CampaignResult: nil,
+	}
+}
+
+func ToCampaignEmailModel(campaignID uint64, campaignEmail *entity.CampaignEmail) *CampaignEmail {
+	return &CampaignEmail{
+		CampaignID: goutil.Uint64(campaignID),
+		EmailID:    campaignEmail.EmailID,
+		Subject:    campaignEmail.Subject,
+		Ratio:      campaignEmail.Ratio,
 	}
 }

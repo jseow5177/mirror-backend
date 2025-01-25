@@ -26,50 +26,56 @@ type CampaignHandler interface {
 }
 
 type campaignHandler struct {
-	cfg               *config.Config
-	campaignRepo      repo.CampaignRepo
-	emailHandler      EmailHandler
-	emailService      dep.EmailService
-	segmentHandler    SegmentHandler
-	campaignLogRepo   repo.CampaignLogRepo
-	campaignEmailRepo repo.CampaignEmailRepo
+	cfg             *config.Config
+	campaignRepo    repo.CampaignRepo
+	emailService    dep.EmailService
+	segmentHandler  SegmentHandler
+	campaignLogRepo repo.CampaignLogRepo
+	emailHandler    EmailHandler
 }
 
 func NewCampaignHandler(
 	cfg *config.Config,
 	campaignRepo repo.CampaignRepo,
-	emailHandler EmailHandler,
 	emailService dep.EmailService,
 	segmentHandler SegmentHandler,
-	campaignEmailRepo repo.CampaignEmailRepo,
 	campaignLogRepo repo.CampaignLogRepo,
+	emailHandler EmailHandler,
 ) CampaignHandler {
 	return &campaignHandler{
 		cfg,
 		campaignRepo,
-		emailHandler,
 		emailService,
 		segmentHandler,
 		campaignLogRepo,
-		campaignEmailRepo,
+		emailHandler,
 	}
 }
 
 type GetCampaignsRequest struct {
-	Name         *string            `json:"name,omitempty"`
-	CampaignDesc *string            `json:"campaign_desc,omitempty"`
-	Pagination   *entity.Pagination `json:"pagination,omitempty"`
+	ContextInfo
+	Keyword    *string          `json:"keyword,omitempty"`
+	Pagination *repo.Pagination `json:"pagination,omitempty"`
+}
+
+func (r *GetCampaignsRequest) GetKeyword() string {
+	if r != nil && r.Keyword != nil {
+		return *r.Keyword
+	}
+	return ""
 }
 
 type GetCampaignsResponse struct {
 	Campaigns  []*entity.Campaign `json:"campaigns"`
-	Pagination *entity.Pagination `json:"pagination,omitempty"`
+	Pagination *repo.Pagination   `json:"pagination,omitempty"`
 }
 
 var GetCampaignsValidator = validator.MustForm(map[string]validator.Validator{
-	"name":          ResourceNameValidator(true),
-	"campaign_desc": ResourceDescValidator(true),
-	"pagination":    PaginationValidator(),
+	"ContextInfo": ContextInfoValidator,
+	"keyword": &validator.String{
+		Optional: false,
+	},
+	"pagination": PaginationValidator(),
 })
 
 func (h *campaignHandler) GetCampaigns(ctx context.Context, req *GetCampaignsRequest, res *GetCampaignsResponse) error {
@@ -78,28 +84,10 @@ func (h *campaignHandler) GetCampaigns(ctx context.Context, req *GetCampaignsReq
 	}
 
 	if req.Pagination == nil {
-		req.Pagination = new(entity.Pagination)
+		req.Pagination = new(repo.Pagination)
 	}
 
-	campaigns, pagination, err := h.campaignRepo.GetMany(ctx, &repo.Filter{
-		Conditions: []*repo.Condition{
-			{
-				Field:         "name",
-				Op:            repo.OpLike,
-				Value:         req.Name,
-				NextLogicalOp: repo.LogicalOpOr,
-			},
-			{
-				Field: "campaign_desc",
-				Op:    repo.OpLike,
-				Value: req.CampaignDesc,
-			},
-		},
-		Pagination: &repo.Pagination{
-			Page:  req.Pagination.Page,
-			Limit: req.Pagination.Limit,
-		},
-	})
+	campaigns, pagination, err := h.campaignRepo.GetByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get campaigns failed: %v", err)
 		return err
@@ -126,13 +114,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 	)
 
 	// fetch without limit
-	campaigns, _, err := h.campaignRepo.GetMany(ctx, &repo.Filter{
-		Conditions: []*repo.Condition{
-			{Field: "status", Op: repo.OpEq, Value: entity.CampaignStatusPending, NextLogicalOp: repo.LogicalOpAnd},
-			{Field: "schedule", Op: repo.OpLte, Value: now},
-		},
-		Pagination: new(repo.Pagination),
-	})
+	campaigns, err := h.campaignRepo.GetPendingCampaigns(ctx, 0, uint64(now))
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get campaigns failed: %v", err)
 		return err
@@ -155,48 +137,47 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 			// set campaign status
 			defer func() {
 				if err != nil {
-					if err = h.campaignRepo.Update(ctx, campaign.GetID(), &entity.Campaign{
+					campaign.Update(&entity.Campaign{
 						Status: entity.CampaignStatusFailed,
-					}); err != nil {
+					})
+					if err = h.campaignRepo.Update(ctx, campaign); err != nil {
 						log.Ctx(ctx).Error().Msgf("set campaign to failed err: %v, campaign_id: %v", err, campaign.GetID())
 					}
 				}
 			}()
 
+			contextInfo := ContextInfo{
+				Tenant: &entity.Tenant{
+					ID: campaign.TenantID,
+				},
+			}
+
 			// fetch segment users
 			getUdsRes := new(GetUdsResponse)
 			if err = h.segmentHandler.GetUds(ctx, &GetUdsRequest{
-				SegmentID: campaign.SegmentID,
+				ContextInfo: contextInfo,
+				SegmentID:   campaign.SegmentID,
 			}, getUdsRes); err != nil {
 				log.Ctx(ctx).Error().Msgf("get uds failed: %v, campaign_id: %v", err, campaign.GetID())
 				return err
 			}
 
 			// set campaign to Running, update the segment size
-			if err = h.campaignRepo.Update(ctx, campaign.GetID(), &entity.Campaign{
+			campaign.Update(&entity.Campaign{
 				SegmentSize: goutil.Uint64(uint64(len(getUdsRes.Uds))),
 				Status:      entity.CampaignStatusRunning,
-			}); err != nil {
-				log.Ctx(ctx).Error().Msgf("set campaign to running err: %v, campaign_id: %v", err, campaign.GetID())
-				return err
-			}
-
-			// fetch campaign emails
-			campaignEmails, err := h.campaignEmailRepo.GetMany(ctx, &repo.Filter{
-				Conditions: []*repo.Condition{
-					{Field: "campaign_id", Op: repo.OpEq, Value: campaign.GetID()},
-				},
 			})
-			if err != nil {
-				log.Ctx(ctx).Error().Msgf("get campaign emails failed: %v", err)
+			if err = h.campaignRepo.Update(ctx, campaign); err != nil {
+				log.Ctx(ctx).Error().Msgf("set campaign to running err: %v, campaign_id: %v", err, campaign.GetID())
 				return err
 			}
 
 			// group emails into buckets and fetch htmls
 			var (
-				pos          int
-				htmls        = make([]string, 0)
-				emailBuckets = make([][]string, 0)
+				pos            int
+				htmls          = make([]string, 0)
+				emailBuckets   = make([][]string, 0)
+				campaignEmails = campaign.CampaignEmails
 			)
 			for _, campaignEmail := range campaignEmails {
 				// group emails
@@ -215,7 +196,8 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 				// fetch htmls
 				var (
 					getEmailReq = &GetEmailRequest{
-						EmailID: campaignEmail.EmailID,
+						ContextInfo: contextInfo,
+						EmailID:     campaignEmail.EmailID,
 					}
 					getEmailRes = new(GetEmailResponse)
 				)
@@ -271,10 +253,11 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 						log.Ctx(ctx).Error().Msgf("send email failed: %v, campaign_email_id: %v, batch_start: %d, batch_end: %d", err,
 							campaignEmail.GetID(), start, end)
 					} else {
-						if err = h.campaignRepo.Update(ctx, campaign.GetID(), &entity.Campaign{
-							Status:   entity.CampaignStatusRunning, // TODO: FIX UPDATE
+						campaign.Update(&entity.Campaign{
 							Progress: goutil.Uint64(uint64(progress)),
-						}); err != nil {
+							Status:   entity.CampaignStatusRunning,
+						})
+						if err = h.campaignRepo.Update(ctx, campaign); err != nil {
 							log.Ctx(ctx).Error().Msgf("update campaign progress err: %v, campaign_id: %v, progress: %v", err,
 								campaign.GetID(), progress)
 						}
@@ -305,6 +288,7 @@ func (e *CampaignEmail) GetRatio() uint64 {
 }
 
 type CreateCampaignRequest struct {
+	ContextInfo
 	Name         *string          `json:"name,omitempty"`
 	CampaignDesc *string          `json:"campaign_desc,omitempty"`
 	SegmentID    *uint64          `json:"segment_id,omitempty"`
@@ -319,11 +303,40 @@ func (r *CreateCampaignRequest) GetSchedule() uint64 {
 	return 0
 }
 
+func (r *CreateCampaignRequest) ToCampaign() *entity.Campaign {
+	now := time.Now()
+
+	campaignEmails := make([]*entity.CampaignEmail, 0, len(r.Emails))
+	for _, campaignEmail := range r.Emails {
+		campaignEmails = append(campaignEmails, &entity.CampaignEmail{
+			EmailID: campaignEmail.EmailID,
+			Subject: campaignEmail.Subject,
+			Ratio:   campaignEmail.Ratio,
+		})
+	}
+
+	return &entity.Campaign{
+		Name:           r.Name,
+		CampaignDesc:   r.CampaignDesc,
+		SegmentID:      r.SegmentID,
+		SegmentSize:    goutil.Uint64(0),
+		Progress:       goutil.Uint64(0),
+		CampaignEmails: campaignEmails,
+		Status:         entity.CampaignStatusPending,
+		CreatorID:      goutil.Uint64(r.GetUserID()),
+		TenantID:       goutil.Uint64(r.GetTenantID()),
+		Schedule:       goutil.Uint64(r.GetSchedule()),
+		CreateTime:     goutil.Uint64(uint64(now.Unix())),
+		UpdateTime:     goutil.Uint64(uint64(now.Unix())),
+	}
+}
+
 type CreateCampaignResponse struct {
 	Campaign *entity.Campaign `json:"campaign"`
 }
 
 var CreateCampaignValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo":   ContextInfoValidator,
 	"name":          ResourceNameValidator(false),
 	"campaign_desc": ResourceDescValidator(false),
 	"segment_id":    &validator.UInt64{},
@@ -360,12 +373,13 @@ func (h *campaignHandler) CreateCampaign(ctx context.Context, req *CreateCampaig
 		return errutil.ValidationError(errors.New("ratios must add up to 100"))
 	}
 
-	emailHtmls := make([]string, 0)
-	campaignEmails := make([]*entity.CampaignEmail, 0, len(req.Emails))
-	for _, campaignEmail := range req.Emails {
+	campaign := req.ToCampaign()
+
+	for _, campaignEmail := range campaign.CampaignEmails {
 		var (
 			getEmailReq = &GetEmailRequest{
-				EmailID: campaignEmail.EmailID,
+				ContextInfo: req.ContextInfo,
+				EmailID:     campaignEmail.EmailID,
 			}
 			getEmailRes = new(GetEmailResponse)
 		)
@@ -373,37 +387,15 @@ func (h *campaignHandler) CreateCampaign(ctx context.Context, req *CreateCampaig
 			log.Ctx(ctx).Error().Msgf("get email err: %v", err)
 			return err
 		}
-
-		campaignEmails = append(campaignEmails, &entity.CampaignEmail{
-			EmailID: campaignEmail.EmailID,
-			Subject: campaignEmail.Subject,
-			Ratio:   campaignEmail.Ratio,
-		})
-
-		emailHtmls = append(emailHtmls, getEmailRes.Email.GetHtml())
 	}
 
-	// create campaign
-	now := time.Now()
-	campaign := &entity.Campaign{
-		Name:           req.Name,
-		CampaignDesc:   req.CampaignDesc,
-		SegmentID:      req.SegmentID,
-		SegmentSize:    goutil.Uint64(0),
-		Progress:       goutil.Uint64(0),
-		CampaignEmails: campaignEmails,
-		Status:         entity.CampaignStatusPending,
-		Schedule:       goutil.Uint64(req.GetSchedule()),
-		CreateTime:     goutil.Uint64(uint64(now.Unix())),
-		UpdateTime:     goutil.Uint64(uint64(now.Unix())),
-	}
-
-	_, err := h.campaignRepo.Create(ctx, campaign)
+	id, err := h.campaignRepo.Create(ctx, campaign)
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("create campaign failed: %v", err)
 		return err
 	}
 
+	campaign.ID = goutil.Uint64(id)
 	res.Campaign = campaign
 
 	return nil
@@ -462,6 +454,7 @@ func (h *campaignHandler) OnEmailAction(ctx context.Context, req *OnEmailActionR
 }
 
 type GetCampaignRequest struct {
+	ContextInfo
 	CampaignID *uint64 `json:"campaign_id,omitempty"`
 }
 
@@ -473,8 +466,8 @@ func (r *GetCampaignRequest) GetCampaignID() uint64 {
 }
 
 type GetCampaignResponse struct {
-	Campaign        *entity.Campaign       `json:"campaign,omitempty"`
-	CampaignResults *entity.CampaignResult `json:"campaign_results,omitempty"`
+	Campaign *entity.Campaign `json:"campaign,omitempty"`
+	Segment  *entity.Segment  `json:"segment,omitempty"`
 }
 
 var GetCampaignValidator = validator.MustForm(map[string]validator.Validator{
@@ -486,7 +479,7 @@ func (h *campaignHandler) GetCampaign(ctx context.Context, req *GetCampaignReque
 		return errutil.ValidationError(err)
 	}
 
-	campaign, err := h.campaignRepo.Get(ctx, req.GetCampaignID())
+	campaign, err := h.campaignRepo.GetByID(ctx, req.GetTenantID(), req.GetCampaignID())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get campaign err: %v", err)
 		return err
@@ -494,7 +487,8 @@ func (h *campaignHandler) GetCampaign(ctx context.Context, req *GetCampaignReque
 
 	var (
 		getSegmentReq = &GetSegmentRequest{
-			SegmentID: campaign.SegmentID,
+			ContextInfo: req.ContextInfo,
+			SegmentID:   campaign.SegmentID,
 		}
 		getSegmentRes = new(GetSegmentResponse)
 	)
@@ -502,28 +496,14 @@ func (h *campaignHandler) GetCampaign(ctx context.Context, req *GetCampaignReque
 		log.Ctx(ctx).Error().Msgf("get segment err: %v", err)
 		return err
 	}
-	campaign.Segment = getSegmentRes.Segment
 
-	campaignEmails, err := h.campaignEmailRepo.GetMany(ctx, &repo.Filter{
-		Conditions: []*repo.Condition{
-			{
-				Field: "campaign_id",
-				Op:    repo.OpEq,
-				Value: campaign.GetID(),
-			},
-		},
-	})
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get campaign emails err: %v", err)
-		return err
-	}
-
-	for _, campaignEmail := range campaignEmails {
+	for _, campaignEmail := range campaign.CampaignEmails {
 		campaignResult := new(entity.CampaignResult)
 
 		var (
 			getEmailReq = &GetEmailRequest{
-				EmailID: campaignEmail.EmailID,
+				ContextInfo: req.ContextInfo,
+				EmailID:     campaignEmail.EmailID,
 			}
 			getEmailRes = new(GetEmailResponse)
 		)
@@ -532,7 +512,6 @@ func (h *campaignHandler) GetCampaign(ctx context.Context, req *GetCampaignReque
 			return err
 		}
 		email := getEmailRes.Email
-		email.Json = nil // no need to return
 		campaignEmail.Email = email
 
 		totalUniqueOpen, err := h.campaignLogRepo.CountTotalUniqueOpen(ctx, campaignEmail.GetID())
@@ -566,8 +545,8 @@ func (h *campaignHandler) GetCampaign(ctx context.Context, req *GetCampaignReque
 		campaignEmail.CampaignResult = campaignResult
 	}
 
-	campaign.CampaignEmails = campaignEmails
 	res.Campaign = campaign
+	res.Segment = getSegmentRes.Segment
 
 	return nil
 }

@@ -91,9 +91,14 @@ func (r *baseRepo) GetMany(ctx context.Context, model interface{}, f *Filter) ([
 		return nil, nil, err
 	}
 
+	pagination := f.Pagination
+	if pagination == nil {
+		pagination = new(Pagination)
+	}
+
 	var (
-		limit = f.Pagination.GetLimit()
-		page  = f.Pagination.GetPage()
+		limit = pagination.GetLimit()
+		page  = pagination.GetPage()
 	)
 	if page == 0 {
 		page = 1
@@ -128,7 +133,7 @@ func (r *baseRepo) GetMany(ctx context.Context, model interface{}, f *Filter) ([
 
 	return res, &Pagination{
 		Page:    goutil.Uint32(page),
-		Limit:   f.Pagination.Limit,
+		Limit:   pagination.Limit,
 		HasNext: goutil.Bool(hasNext),
 		Total:   goutil.Uint32(uint32(count)),
 	}, nil

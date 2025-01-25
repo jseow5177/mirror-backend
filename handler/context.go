@@ -31,6 +31,14 @@ var ContextInfoValidator = validator.MustForm(map[string]validator.Validator{
 	"tenant": TenantValidator,
 })
 
-var UserValidator = validator.MustForm(map[string]validator.Validator{})
+var UserValidator = validator.MustForm(map[string]validator.Validator{
+	"id": &validator.UInt64{
+		Optional: false,
+	},
+})
 
-var TenantValidator = validator.MustForm(map[string]validator.Validator{})
+var TenantValidator = validator.MustForm(map[string]validator.Validator{
+	"id": &validator.UInt64{
+		Optional: false,
+	},
+})
