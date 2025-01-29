@@ -55,6 +55,16 @@ func (e *Campaign) GetStatus() CampaignStatus {
 func (e *Campaign) Update(c *Campaign) bool {
 	var hasChange bool
 
+	if e.Progress != c.Progress {
+		hasChange = true
+		e.Progress = c.Progress
+	}
+
+	if e.SegmentSize != c.SegmentSize {
+		hasChange = true
+		e.SegmentSize = c.SegmentSize
+	}
+
 	if e.Status != c.Status {
 		hasChange = true
 		e.Status = c.Status

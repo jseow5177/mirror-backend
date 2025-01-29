@@ -165,7 +165,7 @@ func (r *campaignRepo) getMany(ctx context.Context, tenantID uint64, conditions 
 		baseConditions = append(baseConditions, r.getBaseConditions(tenantID)...)
 	}
 
-	res, pNew, err := r.baseRepo.GetMany(ctx, new(Tag), &Filter{
+	res, pNew, err := r.baseRepo.GetMany(ctx, new(Campaign), &Filter{
 		Conditions: append(baseConditions, r.mayAddDeleteFilter(conditions, filterDelete)...),
 		Pagination: p,
 	})

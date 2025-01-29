@@ -18,6 +18,7 @@ type UserHandler interface {
 	IsUserPendingInit(ctx context.Context, req *IsUserPendingInitRequest, res *IsUserPendingInitResponse) error
 	InitUser(ctx context.Context, req *InitUserRequest, res *InitUserResponse) error
 	LogIn(ctx context.Context, req *LogInRequest, res *LogInResponse) error
+	LogOut(ctx context.Context, req *LogOutRequest, _ *LogOutResponse) error
 }
 
 type userHandler struct {
@@ -34,6 +35,29 @@ func NewUserHandler(userRepo repo.UserRepo, tenantRepo repo.TenantRepo, activati
 		activationRepo: activationRepo,
 		sessionRepo:    sessionRepo,
 	}
+}
+
+type LogOutRequest struct {
+	ContextInfo
+}
+
+type LogOutResponse struct{}
+
+var LogOutValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator,
+})
+
+func (h *userHandler) LogOut(ctx context.Context, req *LogOutRequest, _ *LogOutResponse) error {
+	if err := LogOutValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	if err := h.sessionRepo.DeleteByUserID(ctx, req.GetUserID()); err != nil {
+		log.Ctx(ctx).Error().Msgf("delete session err: %v", err)
+		return err
+	}
+
+	return nil
 }
 
 type LogInRequest struct {
@@ -67,7 +91,17 @@ type LogInResponse struct {
 	Session *entity.Session `json:"session,omitempty"`
 }
 
+var LogInValidator = validator.MustForm(map[string]validator.Validator{
+	"tenant_name": &validator.String{},
+	"username":    &validator.String{},
+	"password":    &validator.String{},
+})
+
 func (h *userHandler) LogIn(ctx context.Context, req *LogInRequest, res *LogInResponse) error {
+	if err := LogInValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
 	tenant, err := h.tenantRepo.GetByName(ctx, req.GetTenantName())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get tenant error: %v", err)

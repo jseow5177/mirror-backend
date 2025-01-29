@@ -36,6 +36,7 @@ type SessionRepo interface {
 	Create(ctx context.Context, session *entity.Session) (uint64, error)
 	GetByUserID(ctx context.Context, userID uint64) (*entity.Session, error)
 	GetByTokenHash(ctx context.Context, tokenHash string) (*entity.Session, error)
+	DeleteByUserID(ctx context.Context, userID uint64) error
 }
 
 type sessionRepo struct {
@@ -66,6 +67,18 @@ func (r *sessionRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*en
 	}, true)
 }
 
+func (r *sessionRepo) DeleteByUserID(ctx context.Context, userID uint64) error {
+	return r.baseRepo.Delete(ctx, new(Session), &Filter{
+		Conditions: []*Condition{
+			{
+				Field: "user_id",
+				Value: userID,
+				Op:    OpEq,
+			},
+		},
+	})
+}
+
 func (r *sessionRepo) get(ctx context.Context, conditions []*Condition, filterExpire bool) (*entity.Session, error) {
 	session := new(Session)
 
@@ -85,7 +98,7 @@ func (r *sessionRepo) maybeAddExpireFilter(conditions []*Condition, filterExpire
 	if filterExpire {
 		return append(conditions, &Condition{
 			Field: "expire_time",
-			Value: time.Now().Unix(),
+			Value: time.Now().Add(24 * 30 * 3 * time.Hour).Unix(), // TODO
 			Op:    OpLte,
 		})
 	}

@@ -205,12 +205,17 @@ func (s *server) Start() error {
 
 		log.Info().Msgf("starting HTTP server at %s", addr)
 
+		c := cors.New(cors.Options{
+			AllowedOrigins:   []string{s.cfg.WebPage.Domain},
+			AllowCredentials: true,
+		})
+
 		httpServer := &http.Server{
 			BaseContext: func(_ net.Listener) context.Context {
 				return s.ctx
 			},
 			Addr:    addr,
-			Handler: router.Log(cors.Default().Handler(s.registerRoutes())),
+			Handler: router.Log(c.Handler(s.registerRoutes())),
 		}
 		err := httpServer.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -257,6 +262,10 @@ type HealthCheckRequest struct{}
 
 type HealthCheckResponse struct{}
 
+type IsLoggedInRequest struct{}
+
+type IsLoggedInResponse struct{}
+
 func (s *server) registerRoutes() http.Handler {
 	r := &router.HttpRouter{
 		Router: mux.NewRouter(),
@@ -271,6 +280,21 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return nil
 			},
+		},
+	})
+
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathIsLoggedIn,
+		Method: http.MethodGet,
+		Handler: router.Handler{
+			Req: new(IsLoggedInRequest),
+			Res: new(IsLoggedInResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return nil
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
 		},
 	})
 
@@ -650,6 +674,19 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.LogInResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.userHandler.LogIn(ctx, req.(*handler.LogInRequest), res.(*handler.LogInResponse))
+			},
+		},
+	})
+
+	// log_out
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathLogOut,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.LogOutRequest),
+			Res: new(handler.LogOutResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.userHandler.LogOut(ctx, req.(*handler.LogOutRequest), res.(*handler.LogOutResponse))
 			},
 		},
 	})

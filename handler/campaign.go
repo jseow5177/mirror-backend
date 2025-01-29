@@ -10,6 +10,7 @@ import (
 	"cdp/repo"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"math"
@@ -73,7 +74,7 @@ type GetCampaignsResponse struct {
 var GetCampaignsValidator = validator.MustForm(map[string]validator.Validator{
 	"ContextInfo": ContextInfoValidator,
 	"keyword": &validator.String{
-		Optional: false,
+		Optional: true,
 	},
 	"pagination": PaginationValidator(),
 })
@@ -247,6 +248,8 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 						Subject:     campaignEmail.GetSubject(),
 						HtmlContent: htmls[i],
 					}
+
+					fmt.Println(progress)
 
 					// Send the email and handle errors
 					if err = h.emailService.SendEmail(ctx, sendSmtpEmail); err != nil {

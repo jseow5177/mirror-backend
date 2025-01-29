@@ -361,7 +361,8 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 
 			initUserPage := path.Join(
 				h.cfg.WebPage.Domain,
-				fmt.Sprintf(h.cfg.WebPage.Paths.InitUser, act.GetToken()))
+				fmt.Sprintf(h.cfg.WebPage.Paths.InitUser, act.GetToken()),
+			)
 
 			emailVars := map[string]string{
 				"username":     user.GetUsername(),

@@ -29,6 +29,8 @@ const (
 	PathInitUser             = "/init_user"
 	PathIsUserPendingInit    = "/is_user_pending_init"
 	PathLogIn                = "/log_in"
+	PathLogOut               = "/log_out"
+	PathIsLoggedIn           = "/is_logged_in"
 )
 
 const (

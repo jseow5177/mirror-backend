@@ -47,7 +47,8 @@ func (e *Session) GetToken() string {
 }
 
 func NewSession(userID uint64) (*Session, error) {
-	now := uint64(time.Now().Unix())
+	now := time.Now()
+	expire := now.Add(24 * 30 * 3 * time.Hour) // TODO: 3 months
 
 	token, err := goutil.GenerateRandomString(sessionByteLength)
 	if err != nil {
@@ -58,7 +59,7 @@ func NewSession(userID uint64) (*Session, error) {
 		UserID:     goutil.Uint64(userID),
 		Token:      goutil.String(goutil.Base64Encode(token)),
 		TokenHash:  goutil.String(goutil.Sha256(token)),
-		CreateTime: goutil.Uint64(now),
-		ExpireTime: goutil.Uint64(now),
+		CreateTime: goutil.Uint64(uint64(now.Unix())),
+		ExpireTime: goutil.Uint64(uint64(expire.Unix())),
 	}, nil
 }

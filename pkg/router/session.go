@@ -42,7 +42,13 @@ func (m *sessionMiddleware) Handle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		token := r.Header.Get("X-Session-ID")
+		var token string
+		for _, cookie := range r.Cookies() {
+			if cookie.Name == "session" {
+				token = cookie.Value
+				break
+			}
+		}
 		if token == "" {
 			log.Ctx(ctx).Error().Msg("token is empty")
 			m.returnErr(w)

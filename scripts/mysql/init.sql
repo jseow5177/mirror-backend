@@ -131,7 +131,8 @@ CREATE TABLE IF NOT EXISTS session_tab (
     `expire_time` BIGINT UNSIGNED NOT NULL,
     `create_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_token_hash_expire_time` (`token_hash`, `expire_time`)
+    UNIQUE KEY `idx_token_hash_expire_time` (`token_hash`, `expire_time`),
+    KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE DATABASE IF NOT EXISTS mapping_id_db;

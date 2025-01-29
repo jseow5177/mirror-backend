@@ -27,6 +27,7 @@ type BaseRepo interface {
 	Get(ctx context.Context, model interface{}, f *Filter) error
 	GetMany(ctx context.Context, model interface{}, f *Filter) ([]interface{}, *Pagination, error)
 	Count(ctx context.Context, model interface{}, f *Filter) (uint64, error)
+	Delete(ctx context.Context, model interface{}, f *Filter) error
 	Avg(ctx context.Context, model interface{}, field string, f *Filter) (float64, error)
 	GroupBy(ctx context.Context, model, dest interface{}, groupByFields []string, aggregateFields map[string]string, f *Filter) ([]interface{}, error)
 	Update(ctx context.Context, model interface{}) error
@@ -59,6 +60,11 @@ func (r *baseRepo) Count(ctx context.Context, model interface{}, f *Filter) (uin
 		return 0, err
 	}
 	return uint64(count), nil
+}
+
+func (r *baseRepo) Delete(ctx context.Context, model interface{}, f *Filter) error {
+	sqlQuery, args := ToSqlWithArgs(f)
+	return r.getDb(ctx).Where(sqlQuery, args...).Delete(model).Error
 }
 
 func (r *baseRepo) Avg(ctx context.Context, model interface{}, field string, f *Filter) (float64, error) {
