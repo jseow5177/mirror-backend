@@ -298,6 +298,22 @@ func (s *server) registerRoutes() http.Handler {
 		},
 	})
 
+	// get_tag
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetTag,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetTagRequest),
+			Res: new(handler.GetTagResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tagHandler.GetTag(ctx, req.(*handler.GetTagRequest), res.(*handler.GetTagResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
+	})
+
 	// get_tags
 	r.RegisterHttpRoute(&router.HttpRoute{
 		Path:   config.PathGetTags,
@@ -477,6 +493,22 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.CreateEmailResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.emailHandler.CreateEmail(ctx, req.(*handler.CreateEmailRequest), res.(*handler.CreateEmailResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
+	})
+
+	// get_email
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetEmail,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetEmailRequest),
+			Res: new(handler.GetEmailResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.emailHandler.GetEmail(ctx, req.(*handler.GetEmailRequest), res.(*handler.GetEmailResponse))
 			},
 		},
 		Middlewares: []router.Middleware{

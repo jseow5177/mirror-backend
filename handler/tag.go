@@ -15,6 +15,7 @@ import (
 type TagHandler interface {
 	CreateTag(ctx context.Context, req *CreateTagRequest, res *CreateTagResponse) error
 	GetTags(ctx context.Context, req *GetTagsRequest, res *GetTagsResponse) error
+	GetTag(ctx context.Context, req *GetTagRequest, res *GetTagResponse) error
 	CountTags(ctx context.Context, req *CountTagsRequest, res *CountTagsResponse) error
 }
 
@@ -26,6 +27,44 @@ func NewTagHandler(tagRepo repo.TagRepo) TagHandler {
 	return &tagHandler{
 		tagRepo: tagRepo,
 	}
+}
+
+type GetTagRequest struct {
+	ContextInfo
+
+	TagID *uint64 `json:"tag_id,omitempty"`
+}
+
+func (r *GetTagRequest) GetTagID() uint64 {
+	if r != nil && r.TagID != nil {
+		return *r.TagID
+	}
+	return 0
+}
+
+type GetTagResponse struct {
+	Tag *entity.Tag `json:"tag,omitempty"`
+}
+
+var GetTagValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator,
+	"tag_id":      &validator.UInt64{},
+})
+
+func (h *tagHandler) GetTag(ctx context.Context, req *GetTagRequest, res *GetTagResponse) error {
+	if err := GetTagValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	tag, err := h.tagRepo.GetByID(ctx, req.GetTenantID(), req.GetTagID())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get tag failed: %v", err)
+		return err
+	}
+
+	res.Tag = tag
+
+	return nil
 }
 
 type CountTagsRequest struct {

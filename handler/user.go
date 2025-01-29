@@ -115,7 +115,7 @@ func (h *userHandler) LogIn(ctx context.Context, req *LogInRequest, res *LogInRe
 	}
 
 	if !user.ComparePassword(req.GetPassword()) {
-		return errutil.UnauthorizedError(errors.New("invalid password"))
+		return errutil.ValidationError(errors.New("wrong username / password"))
 	}
 
 	sess, err := entity.NewSession(user.GetID())
