@@ -105,7 +105,7 @@ type Segment struct {
 	ID          *uint64       `json:"id,omitempty"`
 	Name        *string       `json:"name,omitempty"`
 	SegmentDesc *string       `json:"segment_desc,omitempty"`
-	Criteria    *Query        `json:"query,omitempty"`
+	Criteria    *Query        `json:"criteria,omitempty"`
 	Status      SegmentStatus `json:"status,omitempty"`
 	CreatorID   *uint64       `json:"creator_id,omitempty"`
 	TenantID    *uint64       `json:"tenant_id,omitempty"`
