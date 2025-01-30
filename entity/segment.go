@@ -4,9 +4,31 @@ import (
 	"encoding/json"
 )
 
+type LookupOp string
+
 const (
-	QueryOpAnd = "AND"
-	QueryOpOr  = "OR"
+	LookupOpEq  LookupOp = "="
+	LookupOpGt  LookupOp = ">"
+	LookupOpLt  LookupOp = "<"
+	LookupOpGte LookupOp = ">="
+	LookupOpLte LookupOp = "<="
+	LookupOpIn  LookupOp = "in"
+)
+
+var SupportedLookupOps = []LookupOp{
+	LookupOpEq,
+	LookupOpGt,
+	LookupOpLt,
+	LookupOpGte,
+	LookupOpLte,
+	LookupOpIn,
+}
+
+type QueryOp string
+
+const (
+	QueryOpAnd QueryOp = "AND"
+	QueryOpOr  QueryOp = "OR"
 )
 
 type SegmentStatus uint32
@@ -17,54 +39,11 @@ const (
 	SegmentStatusDeleted
 )
 
-type Range struct {
-	Lte *string `json:"lte,omitempty"`
-	Lt  *string `json:"lt,omitempty"`
-	Gte *string `json:"gte,omitempty"`
-	Gt  *string `json:"gt,omitempty"`
-}
-
-func (e *Range) GetLt() string {
-	if e != nil && e.Lt != nil {
-		return *e.Lt
-	}
-	return ""
-}
-
-func (e *Range) GetGt() string {
-	if e != nil && e.Gt != nil {
-		return *e.Gt
-	}
-	return ""
-}
-
-func (e *Range) GetGte() string {
-	if e != nil && e.Gte != nil {
-		return *e.Gte
-	}
-	return ""
-}
-
-func (e *Range) GetLte() string {
-	if e != nil && e.Lte != nil {
-		return *e.Lte
-	}
-	return ""
-}
-
 type Lookup struct {
-	TagID *uint64  `json:"tag_id,omitempty"`
-	Eq    *string  `json:"eq,omitempty"`
-	Not   *bool    `json:"not,omitempty"`
-	In    []string `json:"in,omitempty"`
-	Range *Range   `json:"range,omitempty"`
-}
-
-func (e *Lookup) GetEq() string {
-	if e != nil && e.Eq != nil {
-		return *e.Eq
-	}
-	return ""
+	TagID *uint64     `json:"tag_id,omitempty"`
+	Op    LookupOp    `json:"op,omitempty"`
+	Not   *bool       `json:"not,omitempty"`
+	Val   interface{} `json:"val,omitempty"`
 }
 
 func (e *Lookup) GetTagID() uint64 {
@@ -74,16 +53,23 @@ func (e *Lookup) GetTagID() uint64 {
 	return 0
 }
 
+func (e *Lookup) GetVal() interface{} {
+	if e != nil && e.Val != nil {
+		return e.Val
+	}
+	return nil
+}
+
 type Query struct {
 	Lookups []*Lookup `json:"lookups,omitempty"`
 	Queries []*Query  `json:"queries,omitempty"`
-	Op      *string   `json:"op,omitempty"`
+	Op      QueryOp   `json:"op,omitempty"`
 	Not     *bool     `json:"not,omitempty"`
 }
 
-func (e *Query) GetOp() string {
-	if e != nil && e.Op != nil {
-		return *e.Op
+func (e *Query) GetOp() QueryOp {
+	if e != nil {
+		return e.Op
 	}
 	return ""
 }

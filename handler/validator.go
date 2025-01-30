@@ -184,68 +184,40 @@ func (v *queryValidator) validateLookup(ctx context.Context, lookup *entity.Look
 		return err
 	}
 
-	if !goutil.MustHaveOne(lookup.In, lookup.Eq, lookup.Range) {
-		return errors.New("lookup can have only one of in, eq, or range")
-	}
-
-	const errTmpl = "lookup tag value %s is invalid"
-
-	if lookup.Eq != nil {
-		if ok := tag.IsValidTagValue(lookup.GetEq()); !ok {
-			return fmt.Errorf(errTmpl, lookup.GetEq())
+	var isLookupOpValid bool
+	for _, lookupOp := range entity.SupportedLookupOps {
+		if lookupOp == lookup.Op {
+			isLookupOpValid = true
+			break
 		}
 	}
 
-	if lookup.In != nil {
-		if len(lookup.In) == 0 {
-			return fmt.Errorf("include cannot be empty")
-		}
-		for _, in := range lookup.In {
-			if ok := tag.IsValidTagValue(in); !ok {
-				return fmt.Errorf(errTmpl, in)
-			}
-		}
+	if !isLookupOpValid {
+		return errors.New("invalid lookup op")
 	}
 
-	if lookup.Range != nil {
-		if !tag.IsNumeric() {
-			return errors.New("only numeric tag can have range lookup")
+	if lookup.Val == nil {
+		return errors.New("missing val in lookup")
+	}
+
+	if lookup.Op == entity.LookupOpIn {
+		arr, ok := lookup.Val.([]interface{})
+		if !ok {
+			return errors.New("op 'in' expects an array")
 		}
 
-		if !goutil.AtLeastOne(lookup.Range.Gt, lookup.Range.Gte, lookup.Range.Lt, lookup.Range.Lte) {
-			return errors.New("lookup range must have one of Gt, Gte, Lt, and Lte")
+		if len(arr) == 0 {
+			return errors.New("'in' expects a non-empty array")
 		}
 
-		if !goutil.AtMostOne(lookup.Range.Gt, lookup.Range.Gte) {
-			return errors.New("lookup range can only one of Gt or Gte")
-		}
-
-		if !goutil.AtMostOne(lookup.Range.Lt, lookup.Range.Lte) {
-			return errors.New("lookup range can only one of Lt or Lte")
-		}
-
-		if lookup.Range.Gt != nil {
-			if ok := tag.IsValidTagValue(lookup.Range.GetGt()); !ok {
-				return fmt.Errorf(errTmpl, lookup.Range.GetGt())
+		for _, val := range arr {
+			if ok := tag.IsValidTagValue(val); !ok {
+				return fmt.Errorf("lookup tag value %s is invalid", lookup.GetVal())
 			}
 		}
-
-		if lookup.Range.Gte != nil {
-			if ok := tag.IsValidTagValue(lookup.Range.GetGte()); !ok {
-				return fmt.Errorf(errTmpl, lookup.Range.GetGte())
-			}
-		}
-
-		if lookup.Range.Lt != nil {
-			if ok := tag.IsValidTagValue(lookup.Range.GetLt()); !ok {
-				return fmt.Errorf(errTmpl, lookup.Range.GetLt())
-			}
-		}
-
-		if lookup.Range.Lte != nil {
-			if ok := tag.IsValidTagValue(lookup.Range.GetLte()); !ok {
-				return fmt.Errorf(errTmpl, lookup.Range.GetLte())
-			}
+	} else {
+		if ok := tag.IsValidTagValue(lookup.GetVal()); !ok {
+			return fmt.Errorf("lookup tag value %s is invalid", lookup.GetVal())
 		}
 	}
 
