@@ -3,7 +3,6 @@ package handler
 import (
 	"cdp/entity"
 	"cdp/pkg/goutil"
-	"cdp/pkg/router"
 	"cdp/pkg/validator"
 	"cdp/repo"
 	"context"
@@ -224,27 +223,40 @@ func (v *queryValidator) validateLookup(ctx context.Context, lookup *entity.Look
 	return nil
 }
 
-type fileInfoValidator struct {
+func FileUploadValidator(optional bool, maxSize int64, contentType []string) validator.Validator {
+	return validator.MustForm(map[string]validator.Validator{
+		"FileMeta": &fileMetaValidator{
+			optional:    optional,
+			maxSize:     maxSize,
+			contentType: contentType,
+		},
+	})
+}
+
+type fileMetaValidator struct {
 	maxSize     int64
 	contentType []string
 	optional    bool
 }
 
-func (v *fileInfoValidator) Validate(value interface{}) error {
-	fileInfo, ok := value.(*router.FileMeta)
+func (v *fileMetaValidator) Validate(value interface{}) error {
+	fileMeta, ok := value.(*entity.FileMeta)
 	if !ok {
-		return errors.New("expect FileInfo")
+		return errors.New("expect FileMeta")
 	}
 
-	if fileInfo == nil || fileInfo.File == nil {
+	if fileMeta == nil || fileMeta.File == nil {
 		if !v.optional {
 			return errors.New("missing file")
 		}
 	} else {
-		if fileInfo.FileHeader.Size > v.maxSize {
+		if fileMeta.FileHeader == nil {
+			return errors.New("missing file header")
+		}
+		if fileMeta.FileHeader.Size > v.maxSize {
 			return errors.New("file size too large")
 		}
-		if len(v.contentType) > 0 && !goutil.ContainsStr(v.contentType, fileInfo.FileHeader.Header.Get("Content-Type")) {
+		if len(v.contentType) > 0 && !goutil.ContainsStr(v.contentType, fileMeta.FileHeader.Header.Get("Content-Type")) {
 			return errors.New("invalid file type")
 		}
 	}
@@ -252,10 +264,19 @@ func (v *fileInfoValidator) Validate(value interface{}) error {
 	return nil
 }
 
-func FileInfoValidator(optional bool, maxSize int64, contentType []string) validator.Validator {
-	return &fileInfoValidator{
-		optional:    optional,
-		maxSize:     maxSize,
-		contentType: contentType,
-	}
-}
+var ContextInfoValidator = validator.MustForm(map[string]validator.Validator{
+	"User":   UserValidator,
+	"Tenant": TenantValidator,
+})
+
+var UserValidator = validator.MustForm(map[string]validator.Validator{
+	"id": &validator.UInt64{
+		Optional: false,
+	},
+})
+
+var TenantValidator = validator.MustForm(map[string]validator.Validator{
+	"id": &validator.UInt64{
+		Optional: false,
+	},
+})

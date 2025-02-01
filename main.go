@@ -42,6 +42,7 @@ type server struct {
 	userRepo        repo.UserRepo
 	activationRepo  repo.ActivationRepo
 	sessionRepo     repo.SessionRepo
+	taskRepo        repo.TaskRepo
 
 	// services
 	emailService dep.EmailService
@@ -54,6 +55,7 @@ type server struct {
 	campaignHandler  handler.CampaignHandler
 	tenantHandler    handler.TenantHandler
 	userHandler      handler.UserHandler
+	taskHandler      handler.TaskHandler
 }
 
 func main() {
@@ -172,6 +174,9 @@ func (s *server) Start() error {
 	// tag repo
 	s.tagRepo = repo.NewTagRepo(s.ctx, s.baseRepo)
 
+	// task repo
+	s.taskRepo = repo.NewTaskRepo(s.baseRepo)
+
 	// ===== init deps ===== //
 
 	s.emailService, err = dep.NewEmailService(s.ctx, s.cfg)
@@ -197,6 +202,7 @@ func (s *server) Start() error {
 	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailService, s.segmentHandler, s.campaignLogRepo, s.emailHandler)
 	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.userRepo, s.activationRepo, s.emailService)
 	s.userHandler = handler.NewUserHandler(s.userRepo, s.tenantRepo, s.activationRepo, s.sessionRepo)
+	s.taskHandler = handler.NewTaskHandler(s.taskRepo)
 
 	// ===== start server ===== //
 
@@ -558,6 +564,22 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.campaignHandler.RunCampaigns(ctx, req.(*handler.RunCampaignsRequest), res.(*handler.RunCampaignsResponse))
 			},
+		},
+	})
+
+	// create_file_upload_task
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCreateFileUploadTask,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CreateFileUploadTaskRequest),
+			Res: new(handler.CreateFileUploadTaskResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.taskHandler.CreateFileUploadTask(ctx, req.(*handler.CreateFileUploadTaskRequest), res.(*handler.CreateFileUploadTaskResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
 		},
 	})
 

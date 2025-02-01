@@ -1,6 +1,7 @@
 package router
 
 import (
+	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/httputil"
 	"context"
@@ -10,7 +11,6 @@ import (
 	"github.com/gorilla/schema"
 	"github.com/rs/zerolog/log"
 	"mime"
-	"mime/multipart"
 	"net/http"
 	"reflect"
 	"strings"
@@ -20,9 +20,8 @@ const (
 	appBasePath = "/api/v1"
 )
 
-type FileMeta struct {
-	File       multipart.File
-	FileHeader *multipart.FileHeader
+type FileUpload interface {
+	SetFileMeta(m *entity.FileMeta)
 }
 
 // to decode url params
@@ -30,7 +29,6 @@ var decoder = schema.NewDecoder()
 
 var (
 	ErrUnsupportedContentType = errors.New("unsupported content type")
-	ErrCannotSetFileInfo      = errors.New("cannot set file info")
 	ErrCannotDecodeUrlParams  = errors.New("cannot decode url params")
 )
 
@@ -104,16 +102,8 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// set FileMeta field in request struct if present
-			if fileMetaField, ok := h.reqT.Elem().FieldByName("FileMeta"); ok {
-				fv := reflect.ValueOf(req).Elem().FieldByName(fileMetaField.Name)
-				if fv.CanSet() {
-					fv.Set(reflect.ValueOf(fileMeta))
-				} else {
-					log.Ctx(ctx).Error().Msgf("file meta field can not be set: %v", fileMetaField.Name)
-					httputil.ReturnServerResponse(w, nil, ErrCannotSetFileInfo)
-					return
-				}
+			if fileUpload, ok := req.(FileUpload); ok {
+				fileUpload.SetFileMeta(fileMeta)
 			}
 		} else {
 			httputil.ReturnServerResponse(w, nil, errutil.BadRequestError(ErrUnsupportedContentType))
@@ -141,7 +131,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-func getFileMeta(r *http.Request) (*FileMeta, error) {
+func getFileMeta(r *http.Request) (*entity.FileMeta, error) {
 	f, fh, err := r.FormFile("file")
 	if err != nil {
 		return nil, err
@@ -150,7 +140,7 @@ func getFileMeta(r *http.Request) (*FileMeta, error) {
 		_ = f.Close()
 	}()
 
-	fileMeta := &FileMeta{
+	fileMeta := &entity.FileMeta{
 		File:       f,
 		FileHeader: fh,
 	}

@@ -135,6 +135,20 @@ CREATE TABLE IF NOT EXISTS session_tab (
     KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS task_tab (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `resource_id` BIGINT UNSIGNED NOT NULL,
+    `status` TINYINT UNSIGNED NOT NULL,
+    `resource_type` TINYINT UNSIGNED NOT NULL,
+    `task_type` TINYINT UNSIGNED NOT NULL,
+    `ext_info` TEXT NOT NULL,
+    `creator_id` BIGINT UNSIGNED NOT NULL,
+    `create_time` BIGINT UNSIGNED NOT NULL,
+    `update_time` BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_resource_id_resource_type_task_type_status` (`resource_id`, `resource_type`, `task_type`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE DATABASE IF NOT EXISTS mapping_id_db;
 
 USE mapping_id_db;

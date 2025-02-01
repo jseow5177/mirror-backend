@@ -145,14 +145,11 @@ func (h *tagHandler) GetTags(ctx context.Context, req *GetTagsRequest, res *GetT
 type CreateTagRequest struct {
 	ContextInfo
 
-	Name      *string           `json:"name,omitempty"`
-	TagDesc   *string           `json:"tag_desc,omitempty"`
-	Enum      []string          `json:"enum,omitempty"`
-	ValueType *uint32           `json:"value_type,omitempty"`
-	ExtInfo   *CreateTagExtInfo `json:"ext_info,omitempty"`
+	Name      *string  `json:"name,omitempty"`
+	TagDesc   *string  `json:"tag_desc,omitempty"`
+	Enum      []string `json:"enum,omitempty"`
+	ValueType *uint32  `json:"value_type,omitempty"`
 }
-
-type CreateTagExtInfo struct{}
 
 func (req *CreateTagRequest) GetEnum() []string {
 	if req != nil && req.Enum != nil {
@@ -169,9 +166,6 @@ func (req *CreateTagRequest) GetValueType() uint32 {
 }
 
 func (req *CreateTagRequest) ToTag() *entity.Tag {
-	if req.ExtInfo == nil {
-		req.ExtInfo = new(CreateTagExtInfo)
-	}
 	now := time.Now()
 	return &entity.Tag{
 		Name:       req.Name,
