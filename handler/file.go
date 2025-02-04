@@ -2,6 +2,7 @@ package handler
 
 import (
 	"cdp/entity"
+	"mime/multipart"
 )
 
 type FileUpload struct {
@@ -17,4 +18,11 @@ func (f *FileUpload) GetFileName() string {
 		return f.FileMeta.FileHeader.Filename
 	}
 	return ""
+}
+
+func (f *FileUpload) GetFile() multipart.File {
+	if f != nil && f.FileMeta != nil && f.FileMeta.File != nil {
+		return f.FileMeta.File
+	}
+	return nil
 }

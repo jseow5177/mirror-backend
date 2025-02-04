@@ -10,13 +10,45 @@ import (
 
 type Config struct {
 	MetadataDB     MySQL      `json:"metadata_db"`
-	MappingIdDB    MySQL      `json:"mapping_id_db"`
 	QueryDB        ClickHouse `json:"query_db"`
-	FileStore      S3         `json:"file_store"`
+	FileStore      FileStore  `json:"file_store"`
 	SMTP           SMTP       `json:"smtp"`
 	WebPage        WebPage    `json:"web_page"`
 	InternalSender string     `json:"internal_sender"`
 	TestEmails     []string   `json:"test_emails"`
+}
+
+type FileStore struct {
+	BaseFolderID string `json:"base_folder_id"`
+	AdminEmail   string `json:"admin_email"`
+
+	GoogleServiceAccount struct {
+		Type                string `json:"type"`
+		ProjectID           string `json:"project_id"`
+		PrivateKeyID        string `json:"private_key_id"`
+		PrivateKey          string `json:"private_key"`
+		ClientEmail         string `json:"client_email"`
+		ClientID            string `json:"client_id"`
+		AuthURI             string `json:"auth_uri"`
+		TokenURI            string `json:"token_uri"`
+		AuthProviderCertURL string `json:"auth_provider_x509_cert_url"`
+		ClientCertURL       string `json:"client_x509_cert_url"`
+		UniverseDomain      string `json:"universe_domain"`
+	} `json:"google_service_account"`
+}
+
+type GoogleServiceAccount struct {
+	Type                string `json:"type"`
+	ProjectID           string `json:"project_id"`
+	PrivateKeyID        string `json:"private_key_id"`
+	PrivateKey          string `json:"private_key"`
+	ClientEmail         string `json:"client_email"`
+	ClientID            string `json:"client_id"`
+	AuthURI             string `json:"auth_uri"`
+	TokenURI            string `json:"token_uri"`
+	AuthProviderCertURL string `json:"auth_provider_x509_cert_url"`
+	ClientCertURL       string `json:"client_x509_cert_url"`
+	UniverseDomain      string `json:"universe_domain"`
 }
 
 type WebPage struct {
@@ -56,14 +88,6 @@ type MySQL struct {
 	Database string `json:"database"`
 }
 
-type S3 struct {
-	Bucket            string `json:"bucket"`
-	Region            string `json:"region"`
-	AccessKeyID       string `json:"access_key_id"`
-	SecretAccessKey   string `json:"secret_access_key"`
-	ExpirationSeconds int64  `json:"expiration_seconds"`
-}
-
 func (mysql *MySQL) ToDSN() string {
 	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", mysql.Username, mysql.Password, mysql.Host, mysql.Port, mysql.Database)
 }
@@ -77,13 +101,6 @@ func NewConfig() *Config {
 			Port:     3306,
 			Database: "metadata_db",
 		},
-		MappingIdDB: MySQL{
-			Username: "",
-			Password: "",
-			Host:     "127.0.0.1",
-			Port:     3306,
-			Database: "mapping_id_db",
-		},
 		QueryDB: ClickHouse{
 			Database:               "cdp_db",
 			Addr:                   []string{"127.0.0.1:9000"},
@@ -93,12 +110,9 @@ func NewConfig() *Config {
 			DialTimeoutSeconds:     10,
 			ConnMaxLifetimeSeconds: 3600,
 		},
-		FileStore: S3{
-			Bucket:            "cdp-file-store-test",
-			Region:            "ap-southeast-1",
-			AccessKeyID:       "",
-			SecretAccessKey:   "",
-			ExpirationSeconds: 7_776_000, // 3 months
+		FileStore: FileStore{
+			BaseFolderID: "",
+			AdminEmail:   "",
 		},
 		SMTP: SMTP{
 			Host:     "127.0.0.1",

@@ -53,6 +53,7 @@ func (m *Task) GetResourceType() uint32 {
 
 type TaskRepo interface {
 	Create(ctx context.Context, task *entity.Task) (uint64, error)
+	GetByResourceIDAndType(ctx context.Context, resourceID uint64, resourceType entity.ResourceType, p *Pagination) ([]*entity.Task, *Pagination, error)
 }
 
 func NewTaskRepo(baseRepo BaseRepo) TaskRepo {
@@ -63,6 +64,43 @@ func NewTaskRepo(baseRepo BaseRepo) TaskRepo {
 
 type taskRepo struct {
 	baseRepo BaseRepo
+}
+
+func (r *taskRepo) GetByResourceIDAndType(ctx context.Context, resourceID uint64, resourceType entity.ResourceType, p *Pagination) ([]*entity.Task, *Pagination, error) {
+	return r.getMany(ctx, []*Condition{
+		{
+			Field:         "resource_id",
+			Value:         resourceID,
+			Op:            OpEq,
+			NextLogicalOp: LogicalOpAnd,
+		},
+		{
+			Field: "resource_type",
+			Value: resourceType,
+			Op:    OpEq,
+		},
+	}, p)
+}
+
+func (r *taskRepo) getMany(ctx context.Context, conditions []*Condition, p *Pagination) ([]*entity.Task, *Pagination, error) {
+	res, pNew, err := r.baseRepo.GetMany(ctx, new(Task), &Filter{
+		Conditions: conditions,
+		Pagination: p,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	tasks := make([]*entity.Task, 0, len(res))
+	for _, m := range res {
+		task, err := ToTask(m.(*Task))
+		if err != nil {
+			return nil, nil, err
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, pNew, nil
 }
 
 func (r *taskRepo) Create(ctx context.Context, task *entity.Task) (uint64, error) {

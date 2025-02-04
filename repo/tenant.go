@@ -5,6 +5,7 @@ import (
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
 	"context"
+	"encoding/json"
 	"errors"
 	"gorm.io/gorm"
 )
@@ -17,6 +18,7 @@ type Tenant struct {
 	ID         *uint64 `json:"id,omitempty"`
 	Name       *string `json:"name,omitempty"`
 	Status     *uint32 `json:"status,omitempty"`
+	ExtInfo    *string `json:"ext_info,omitempty"`
 	CreateTime *uint64 `json:"create_time,omitempty"`
 	UpdateTime *uint64 `json:"update_time,omitempty"`
 }
@@ -39,6 +41,13 @@ func (m *Tenant) GetStatus() uint32 {
 	return 0
 }
 
+func (m *Tenant) GetExtInfo() string {
+	if m != nil && m.ExtInfo != nil {
+		return *m.ExtInfo
+	}
+	return ""
+}
+
 type TenantRepo interface {
 	Create(ctx context.Context, tenant *entity.Tenant) (uint64, error)
 	Update(ctx context.Context, tenant *entity.Tenant) error
@@ -55,7 +64,12 @@ func NewTenantRepo(_ context.Context, baseRepo BaseRepo) TenantRepo {
 }
 
 func (r *tenantRepo) Update(ctx context.Context, tenant *entity.Tenant) error {
-	if err := r.baseRepo.Update(ctx, ToTenantModel(tenant)); err != nil {
+	tenantModel, err := ToTenantModel(tenant)
+	if err != nil {
+		return err
+	}
+
+	if err := r.baseRepo.Update(ctx, tenantModel); err != nil {
 		return err
 	}
 
@@ -94,7 +108,7 @@ func (r *tenantRepo) get(ctx context.Context, conditions []*Condition, filterDel
 		return nil, err
 	}
 
-	return ToTenant(tenant), nil
+	return ToTenant(tenant)
 }
 
 func (r *tenantRepo) mayAddDeleteFilter(conditions []*Condition, filterDelete bool) []*Condition {
@@ -113,7 +127,10 @@ func (r *tenantRepo) getBaseConditions() []*Condition {
 }
 
 func (r *tenantRepo) Create(ctx context.Context, tenant *entity.Tenant) (uint64, error) {
-	tenantModel := ToTenantModel(tenant)
+	tenantModel, err := ToTenantModel(tenant)
+	if err != nil {
+		return 0, err
+	}
 
 	if err := r.baseRepo.Create(ctx, tenantModel); err != nil {
 		return 0, err
@@ -122,22 +139,34 @@ func (r *tenantRepo) Create(ctx context.Context, tenant *entity.Tenant) (uint64,
 	return tenantModel.GetID(), nil
 }
 
-func ToTenant(tenant *Tenant) *entity.Tenant {
+func ToTenant(tenant *Tenant) (*entity.Tenant, error) {
+	extInfo := new(entity.TenantExtInfo)
+	if err := json.Unmarshal([]byte(tenant.GetExtInfo()), extInfo); err != nil {
+		return nil, err
+	}
+
 	return &entity.Tenant{
 		ID:         tenant.ID,
 		Name:       tenant.Name,
 		Status:     entity.TenantStatus(tenant.GetStatus()),
+		ExtInfo:    extInfo,
 		CreateTime: tenant.CreateTime,
 		UpdateTime: tenant.UpdateTime,
-	}
+	}, nil
 }
 
-func ToTenantModel(tenant *entity.Tenant) *Tenant {
+func ToTenantModel(tenant *entity.Tenant) (*Tenant, error) {
+	extInfo, err := tenant.GetExtInfo().ToString()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Tenant{
 		ID:         tenant.ID,
 		Name:       tenant.Name,
 		Status:     goutil.Uint32(uint32(tenant.GetStatus())),
+		ExtInfo:    goutil.String(extInfo),
 		CreateTime: tenant.CreateTime,
 		UpdateTime: tenant.UpdateTime,
-	}
+	}, nil
 }

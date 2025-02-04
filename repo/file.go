@@ -1,71 +1,133 @@
 package repo
 
 import (
+	"bufio"
 	"cdp/config"
+	"cdp/pkg/goutil"
 	"context"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"encoding/csv"
+	"encoding/json"
+	"google.golang.org/api/drive/v3"
+	"google.golang.org/api/option"
 	"io"
-	"time"
+	"strings"
 )
 
 type FileRepo interface {
-	Upload(ctx context.Context, key string, f io.Reader) (string, error)
-	Download(ctx context.Context, key string) ([]byte, error)
+	CreateFile(ctx context.Context, parentID *string, fileName string, data io.Reader) (string, error)
+	CreateFolder(ctx context.Context, folderName string) (string, error)
 	Close(ctx context.Context) error
 }
 
 type fileRepo struct {
-	bucket            string
-	uploader          *s3manager.Uploader
-	downloader        *s3manager.Downloader
-	expirationSeconds int64
+	baseFolderID string
+	adminEmail   string
+
+	srv *drive.Service
 }
 
-func NewFileRepo(_ context.Context, s3Cfg config.S3) FileRepo {
-	// start s3 client
-	//sess := session.Must(session.NewSession(&aws.Config{
-	//	Region:      goutil.String(s3Cfg.Region),
-	//	Credentials: credentials.NewStaticCredentials(s3Cfg.AccessKeyID, s3Cfg.SecretAccessKey, ""),
-	//}))
-
-	return &fileRepo{
-		//uploader:          s3manager.NewUploader(sess),
-		//downloader:        s3manager.NewDownloader(sess),
-		//bucket:            s3Cfg.Bucket,
-		//expirationSeconds: s3Cfg.ExpirationSeconds,
-	}
-}
-
-func (r *fileRepo) Upload(_ context.Context, key string, f io.Reader) (string, error) {
-	expiry := time.Now().Add(time.Duration(r.expirationSeconds) * time.Second)
-
-	res, err := r.uploader.Upload(&s3manager.UploadInput{
-		Bucket:  aws.String(r.bucket),
-		Key:     aws.String(key),
-		Body:    f,
-		Expires: &expiry,
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return res.Location, err
-}
-
-func (r *fileRepo) Download(_ context.Context, key string) ([]byte, error) {
-	buf := aws.NewWriteAtBuffer(make([]byte, 0))
-
-	_, err := r.downloader.Download(buf, &s3.GetObjectInput{
-		Bucket: aws.String(r.bucket),
-		Key:    aws.String(key),
-	})
+func NewFileRepo(ctx context.Context, cfg config.FileStore) (FileRepo, error) {
+	b, err := json.Marshal(cfg.GoogleServiceAccount)
 	if err != nil {
 		return nil, err
 	}
 
-	return buf.Bytes(), nil
+	srv, err := drive.NewService(ctx, option.WithCredentialsJSON(b))
+	if err != nil {
+		return nil, err
+	}
+
+	return &fileRepo{
+		adminEmail:   cfg.AdminEmail,
+		baseFolderID: cfg.BaseFolderID,
+		srv:          srv,
+	}, nil
+}
+
+func (r *fileRepo) CreateFolder(_ context.Context, folderName string) (string, error) {
+	folder, err := r.srv.Files.Create(&drive.File{
+		Name:     folderName,
+		MimeType: "application/vnd.google-apps.folder",
+	}).Do()
+	if err != nil {
+		return "", err
+	}
+
+	if err := r.addBasePermissions(folder.Id); err != nil {
+		return "", err
+	}
+
+	return folder.Id, nil
+}
+
+func (r *fileRepo) CreateFile(_ context.Context, parentID *string, fileName string, data io.Reader) (string, error) {
+	if parentID == nil {
+		parentID = goutil.String(r.baseFolderID)
+	}
+	f := &drive.File{
+		Name:    fileName,
+		Parents: []string{*parentID},
+	}
+
+	file, err := r.srv.Files.Create(f).Media(data).Do()
+	if err != nil {
+		return "", err
+	}
+	return file.Id, err
+}
+
+func (r *fileRepo) addBasePermissions(fileID string) error {
+	_, err := r.srv.Permissions.Create(fileID, &drive.Permission{
+		Type:         "user",
+		Role:         "writer",
+		EmailAddress: r.adminEmail,
+	}).Do()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *fileRepo) DownloadFile(_ context.Context, fileID string) ([][]string, error) {
+	resp, err := r.srv.Files.Get(fileID).Download()
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	scanner := bufio.NewScanner(resp.Body)
+
+	var (
+		records  [][]string
+		isHeader = true
+	)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if isHeader {
+			isHeader = false
+			continue
+		}
+
+		reader := csv.NewReader(strings.NewReader(line))
+		row, err := reader.Read()
+		if err != nil {
+			return nil, err
+		}
+
+		records = append(records, row)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return records, nil
 }
 
 func (r *fileRepo) Close(_ context.Context) error {

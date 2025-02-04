@@ -34,7 +34,6 @@ type server struct {
 	tagRepo         repo.TagRepo
 	segmentRepo     repo.SegmentRepo
 	fileRepo        repo.FileRepo
-	mappingIDRepo   repo.MappingIDRepo
 	emailRepo       repo.EmailRepo
 	campaignRepo    repo.CampaignRepo
 	campaignLogRepo repo.CampaignLogRepo
@@ -48,14 +47,13 @@ type server struct {
 	emailService dep.EmailService
 
 	// api handlers
-	tagHandler       handler.TagHandler
-	segmentHandler   handler.SegmentHandler
-	mappingIDHandler handler.MappingIDHandler
-	emailHandler     handler.EmailHandler
-	campaignHandler  handler.CampaignHandler
-	tenantHandler    handler.TenantHandler
-	userHandler      handler.UserHandler
-	taskHandler      handler.TaskHandler
+	tagHandler      handler.TagHandler
+	segmentHandler  handler.SegmentHandler
+	emailHandler    handler.EmailHandler
+	campaignHandler handler.CampaignHandler
+	tenantHandler   handler.TenantHandler
+	userHandler     handler.UserHandler
+	taskHandler     handler.TaskHandler
 }
 
 func main() {
@@ -125,26 +123,15 @@ func (s *server) Start() error {
 	s.segmentRepo = repo.NewSegmentRepo(s.ctx, s.baseRepo)
 
 	// file repo
-	s.fileRepo = repo.NewFileRepo(s.ctx, s.cfg.FileStore)
+	s.fileRepo, err = repo.NewFileRepo(s.ctx, s.cfg.FileStore)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init file repo failed, err: %v", err)
+		return err
+	}
 	defer func() {
 		if err != nil && s.fileRepo != nil {
 			if err := s.fileRepo.Close(s.ctx); err != nil {
 				log.Ctx(s.ctx).Error().Msgf("close file repo failed, err: %v", err)
-				return
-			}
-		}
-	}()
-
-	// mapping ID repo
-	s.mappingIDRepo, err = repo.NewMappingIDRepo(s.ctx, s.cfg.MappingIdDB)
-	if err != nil {
-		log.Ctx(s.ctx).Error().Msgf("init mapping id repo failed, err: %v", err)
-		return err
-	}
-	defer func() {
-		if err != nil && s.mappingIDRepo != nil {
-			if err := s.mappingIDRepo.Close(s.ctx); err != nil {
-				log.Ctx(s.ctx).Error().Msgf("close mapping id repo failed, err: %v", err)
 				return
 			}
 		}
@@ -197,12 +184,11 @@ func (s *server) Start() error {
 
 	s.tagHandler = handler.NewTagHandler(s.tagRepo)
 	s.segmentHandler = handler.NewSegmentHandler(s.cfg, s.tagRepo, s.segmentRepo)
-	s.mappingIDHandler = handler.NewMappingIDHandler(s.mappingIDRepo)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
 	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailService, s.segmentHandler, s.campaignLogRepo, s.emailHandler)
-	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.userRepo, s.activationRepo, s.emailService)
+	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.userRepo, s.activationRepo, s.emailService, s.fileRepo)
 	s.userHandler = handler.NewUserHandler(s.userRepo, s.tenantRepo, s.activationRepo, s.sessionRepo)
-	s.taskHandler = handler.NewTaskHandler(s.taskRepo)
+	s.taskHandler = handler.NewTaskHandler(s.taskRepo, s.fileRepo)
 
 	// ===== start server ===== //
 
@@ -243,13 +229,6 @@ func (s *server) Stop() error {
 	if s.fileRepo != nil {
 		if err := s.fileRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close entity file repo failed, err: %v", err)
-			return err
-		}
-	}
-
-	if s.mappingIDRepo != nil {
-		if err := s.mappingIDRepo.Close(s.ctx); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close mapping id repo failed, err: %v", err)
 			return err
 		}
 	}
@@ -464,32 +443,6 @@ func (s *server) registerRoutes() http.Handler {
 		},
 	})
 
-	// get_mapping_ids
-	r.RegisterHttpRoute(&router.HttpRoute{
-		Path:   config.PathGetMappingIDs,
-		Method: http.MethodPost,
-		Handler: router.Handler{
-			Req: new(handler.GetMappingIDsRequest),
-			Res: new(handler.GetMappingIDsResponse),
-			HandleFunc: func(ctx context.Context, req, res interface{}) error {
-				return s.mappingIDHandler.GetMappingIDs(ctx, req.(*handler.GetMappingIDsRequest), res.(*handler.GetMappingIDsResponse))
-			},
-		},
-	})
-
-	// get_set_mapping_ids
-	r.RegisterHttpRoute(&router.HttpRoute{
-		Path:   config.PathGetSetMappingIDs,
-		Method: http.MethodPost,
-		Handler: router.Handler{
-			Req: new(handler.GetSetMappingIDsRequest),
-			Res: new(handler.GetSetMappingIDsResponse),
-			HandleFunc: func(ctx context.Context, req, res interface{}) error {
-				return s.mappingIDHandler.GetSetMappingIDs(ctx, req.(*handler.GetSetMappingIDsRequest), res.(*handler.GetSetMappingIDsResponse))
-			},
-		},
-	})
-
 	// create_email
 	r.RegisterHttpRoute(&router.HttpRoute{
 		Path:   config.PathCreateEmail,
@@ -576,6 +529,22 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.CreateFileUploadTaskResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.taskHandler.CreateFileUploadTask(ctx, req.(*handler.CreateFileUploadTaskRequest), res.(*handler.CreateFileUploadTaskResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
+	})
+
+	// get_file_upload_tasks
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetFileUploadTasks,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetFileUploadTasksRequest),
+			Res: new(handler.GetFileUploadTasksResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.taskHandler.GetFileUploadTasks(ctx, req.(*handler.GetFileUploadTasksRequest), res.(*handler.GetFileUploadTasksResponse))
 			},
 		},
 		Middlewares: []router.Middleware{

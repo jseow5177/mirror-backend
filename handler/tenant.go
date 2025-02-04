@@ -30,6 +30,7 @@ type tenantHandler struct {
 	userRepo       repo.UserRepo
 	activationRepo repo.ActivationRepo
 	emailService   dep.EmailService
+	fileRepo       repo.FileRepo
 }
 
 func NewTenantHandler(
@@ -39,6 +40,7 @@ func NewTenantHandler(
 	userRepo repo.UserRepo,
 	activationRepo repo.ActivationRepo,
 	emailService dep.EmailService,
+	fileRepo repo.FileRepo,
 ) TenantHandler {
 	return &tenantHandler{
 		cfg:            cfg,
@@ -47,6 +49,7 @@ func NewTenantHandler(
 		userRepo:       userRepo,
 		activationRepo: activationRepo,
 		emailService:   emailService,
+		fileRepo:       fileRepo,
 	}
 }
 
@@ -62,7 +65,7 @@ func (r *CreateTenantRequest) GetName() string {
 }
 
 func (r *CreateTenantRequest) ToTenant() *entity.Tenant {
-	return entity.NewTenant(r.GetName(), entity.TenantStatusPending)
+	return entity.NewTenant(r.GetName(), entity.TenantStatusPending, "")
 }
 
 type CreateTenantResponse struct {
@@ -306,6 +309,15 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 		return err
 	}
 
+	usersMap := make(map[string]bool, len(users))
+	for _, u := range users {
+		if usersMap[u.GetEmail()] {
+			return errutil.ValidationError(fmt.Errorf("duplicate user email found: %v", u.GetEmail()))
+		} else {
+			usersMap[u.GetEmail()] = true
+		}
+	}
+
 	var (
 		acts         = make([]*entity.Activation, 0)
 		pendingUsers = make([]*entity.User, 0)
@@ -329,9 +341,17 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 			}
 		}
 
-		_, err = h.activationRepo.CreateMany(ctx, acts)
+		if len(acts) != 0 {
+			_, err = h.activationRepo.CreateMany(ctx, acts)
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("create activations failed: %v", err)
+				return err
+			}
+		}
+
+		folderID, err := h.fileRepo.CreateFolder(ctx, tenant.GetName())
 		if err != nil {
-			log.Ctx(ctx).Error().Msgf("create activations failed: %v", err)
+			log.Ctx(ctx).Error().Msgf("create tenant folder failed: %v, tenant: %v", err, tenant.GetName())
 			return err
 		}
 
@@ -339,6 +359,7 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 			entity.NewTenant(
 				tenant.GetName(),
 				entity.TenantStatusNormal,
+				folderID,
 			),
 		)
 

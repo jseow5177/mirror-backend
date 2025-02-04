@@ -166,7 +166,7 @@ func (r *baseRepo) GetMany(ctx context.Context, model interface{}, f *Filter) ([
 		page = 1
 	}
 
-	query = query.Offset(int((page - 1) * limit))
+	query = query.Offset(int((page - 1) * limit)).Order("id DESC")
 	if limit > 0 {
 		query = query.Limit(int(limit + 1))
 	}

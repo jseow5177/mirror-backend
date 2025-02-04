@@ -51,7 +51,10 @@ const (
 )
 
 type TaskExtInfo struct {
-	FileName string `json:"file_name,omitempty"`
+	FileID      *string `json:"file_id,omitempty"`
+	OriFileName *string `json:"ori_file_name,omitempty"`
+	Size        *uint64 `json:"size,omitempty"`
+	Progress    *uint64 `json:"progress,omitempty"`
 }
 
 func (e *TaskExtInfo) ToString() (string, error) {

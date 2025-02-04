@@ -2,6 +2,7 @@ package entity
 
 import (
 	"cdp/pkg/goutil"
+	"encoding/json"
 	"time"
 )
 
@@ -14,20 +15,45 @@ const (
 	TenantStatusDeleted
 )
 
-type Tenant struct {
-	ID         *uint64      `json:"id,omitempty"`
-	Name       *string      `json:"name,omitempty"`
-	Status     TenantStatus `json:"status,omitempty"`
-	CreateTime *uint64      `json:"create_time,omitempty"`
-	UpdateTime *uint64      `json:"update_time,omitempty"`
+type TenantExtInfo struct {
+	FolderID string `json:"folder_id,omitempty"`
 }
 
-func NewTenant(name string, status TenantStatus) *Tenant {
+func (e *TenantExtInfo) ToString() (string, error) {
+	if e == nil {
+		return "{}", nil
+	}
+
+	b, err := json.Marshal(e)
+	if err != nil {
+		return "", err
+	}
+
+	return string(b), nil
+}
+
+func (e *TenantExtInfo) GetFolderID() string {
+	return e.FolderID
+}
+
+type Tenant struct {
+	ID         *uint64        `json:"id,omitempty"`
+	Name       *string        `json:"name,omitempty"`
+	Status     TenantStatus   `json:"status,omitempty"`
+	ExtInfo    *TenantExtInfo `json:"ext_info,omitempty"`
+	CreateTime *uint64        `json:"create_time,omitempty"`
+	UpdateTime *uint64        `json:"update_time,omitempty"`
+}
+
+func NewTenant(name string, status TenantStatus, folderID string) *Tenant {
 	now := uint64(time.Now().Unix())
 
 	return &Tenant{
-		Name:       goutil.String(name),
-		Status:     status,
+		Name:   goutil.String(name),
+		Status: status,
+		ExtInfo: &TenantExtInfo{
+			FolderID: folderID,
+		},
 		CreateTime: goutil.Uint64(now),
 		UpdateTime: goutil.Uint64(now),
 	}
@@ -39,6 +65,13 @@ func (e *Tenant) Update(t *Tenant) bool {
 	if e.Status != t.Status {
 		hasChange = true
 		e.Status = t.Status
+	}
+
+	if t.ExtInfo != nil {
+		if e.ExtInfo.FolderID != t.ExtInfo.FolderID {
+			hasChange = true
+			e.ExtInfo.FolderID = t.ExtInfo.FolderID
+		}
 	}
 
 	if hasChange {
@@ -67,6 +100,13 @@ func (e *Tenant) GetName() string {
 		return *e.Name
 	}
 	return ""
+}
+
+func (e *Tenant) GetExtInfo() *TenantExtInfo {
+	if e != nil && e.ExtInfo != nil {
+		return e.ExtInfo
+	}
+	return nil
 }
 
 func (e *Tenant) IsNormal() bool {

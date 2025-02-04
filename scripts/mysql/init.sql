@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS tenant_tab (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(64) NOT NULL,
     `status` TINYINT UNSIGNED NOT NULL,
+    `ext_info` TEXT NOT NULL,
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
@@ -146,16 +147,6 @@ CREATE TABLE IF NOT EXISTS task_tab (
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
-    KEY `idx_resource_id_resource_type_task_type_status` (`resource_id`, `resource_type`, `task_type`, `status`)
+    KEY `idx_resource_id` (`resource_id`),
+    KEY `idx_resource_type_task_type_status` (`resource_type`, `task_type`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE DATABASE IF NOT EXISTS mapping_id_db;
-
-USE mapping_id_db;
-
-CREATE TABLE IF NOT EXISTS mapping_id_tab (
-    `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-    `ud_id` varchar(64) NOT NULL,
-    PRIMARY KEY (`id`),
-    UNIQUE INDEX idx_ud_id (`ud_id`)
-);
