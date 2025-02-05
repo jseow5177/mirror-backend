@@ -16,6 +16,7 @@ import (
 type FileRepo interface {
 	CreateFile(ctx context.Context, parentID *string, fileName string, data io.Reader) (string, error)
 	CreateFolder(ctx context.Context, folderName string) (string, error)
+	DownloadFile(_ context.Context, fileID string) ([][]string, error)
 	Close(ctx context.Context) error
 }
 
@@ -26,7 +27,7 @@ type fileRepo struct {
 	srv *drive.Service
 }
 
-func NewFileRepo(ctx context.Context, cfg config.FileStore) (FileRepo, error) {
+func NewFileRepo(ctx context.Context, cfg config.GoogleDrive) (FileRepo, error) {
 	b, err := json.Marshal(cfg.GoogleServiceAccount)
 	if err != nil {
 		return nil, err

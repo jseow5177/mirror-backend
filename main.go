@@ -42,6 +42,7 @@ type server struct {
 	activationRepo  repo.ActivationRepo
 	sessionRepo     repo.SessionRepo
 	taskRepo        repo.TaskRepo
+	queryRepo       repo.QueryRepo
 
 	// services
 	emailService dep.EmailService
@@ -119,8 +120,20 @@ func (s *server) Start() error {
 		}
 	}()
 
-	// segment repo
-	s.segmentRepo = repo.NewSegmentRepo(s.ctx, s.baseRepo)
+	// query repo
+	s.queryRepo, err = repo.NewQueryRepo(s.ctx, s.cfg.QueryDB)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init query repo failed, err: %v", err)
+		return err
+	}
+	defer func() {
+		if err != nil && s.queryRepo != nil {
+			if err := s.queryRepo.Close(s.ctx); err != nil {
+				log.Ctx(s.ctx).Error().Msgf("close query repo failed, err: %v", err)
+				return
+			}
+		}
+	}()
 
 	// file repo
 	s.fileRepo, err = repo.NewFileRepo(s.ctx, s.cfg.FileStore)
@@ -136,6 +149,9 @@ func (s *server) Start() error {
 			}
 		}
 	}()
+
+	// segment repo
+	s.segmentRepo = repo.NewSegmentRepo(s.ctx, s.baseRepo)
 
 	// email repo
 	s.emailRepo = repo.NewEmailRepo(s.ctx, s.baseRepo)
@@ -166,7 +182,7 @@ func (s *server) Start() error {
 
 	// ===== init deps ===== //
 
-	s.emailService, err = dep.NewEmailService(s.ctx, s.cfg)
+	s.emailService, err = dep.NewEmailService(s.ctx, s.cfg.SMTP)
 	if err != nil {
 		log.Ctx(s.ctx).Error().Msgf("init email service failed, err: %v", err)
 		return err
@@ -186,9 +202,9 @@ func (s *server) Start() error {
 	s.segmentHandler = handler.NewSegmentHandler(s.cfg, s.tagRepo, s.segmentRepo)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
 	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailService, s.segmentHandler, s.campaignLogRepo, s.emailHandler)
-	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.userRepo, s.activationRepo, s.emailService, s.fileRepo)
+	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.userRepo, s.activationRepo, s.emailService, s.fileRepo, s.queryRepo)
 	s.userHandler = handler.NewUserHandler(s.userRepo, s.tenantRepo, s.activationRepo, s.sessionRepo)
-	s.taskHandler = handler.NewTaskHandler(s.taskRepo, s.fileRepo)
+	s.taskHandler = handler.NewTaskHandler(s.taskRepo, s.fileRepo, s.queryRepo, s.tenantRepo)
 
 	// ===== start server ===== //
 
@@ -236,6 +252,13 @@ func (s *server) Stop() error {
 	if s.emailService != nil {
 		if err := s.emailService.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close email service failed, err: %v", err)
+			return err
+		}
+	}
+
+	if s.queryRepo != nil {
+		if err := s.queryRepo.Close(s.ctx); err != nil {
+			log.Ctx(s.ctx).Error().Msgf("close query repo failed, err: %v", err)
 			return err
 		}
 	}
@@ -533,6 +556,19 @@ func (s *server) registerRoutes() http.Handler {
 		},
 		Middlewares: []router.Middleware{
 			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
+	})
+
+	// run_file_upload_tasks
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathRunFileUploadTasks,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.RunFileUploadTasksRequest),
+			Res: new(handler.RunFileUploadTasksResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.taskHandler.RunFileUploadTasks(ctx, req.(*handler.RunFileUploadTasksRequest), res.(*handler.RunFileUploadTasksResponse))
+			},
 		},
 	})
 

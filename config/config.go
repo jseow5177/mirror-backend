@@ -9,16 +9,25 @@ import (
 )
 
 type Config struct {
-	MetadataDB     MySQL      `json:"metadata_db"`
-	QueryDB        ClickHouse `json:"query_db"`
-	FileStore      FileStore  `json:"file_store"`
-	SMTP           SMTP       `json:"smtp"`
-	WebPage        WebPage    `json:"web_page"`
-	InternalSender string     `json:"internal_sender"`
-	TestEmails     []string   `json:"test_emails"`
+	MetadataDB     MySQL         `json:"metadata_db"`
+	QueryDB        ElasticSearch `json:"query_db"`
+	FileStore      GoogleDrive   `json:"file_store"`
+	SMTP           Brevo         `json:"smtp"`
+	WebPage        WebPage       `json:"web_page"`
+	InternalSender string        `json:"internal_sender"`
+	TestEmails     []string      `json:"test_emails"`
 }
 
-type FileStore struct {
+type ElasticSearch struct {
+	Addr                 []string `json:"addr"`
+	Username             string   `json:"username"`
+	Password             string   `json:"password"`
+	NumWorkers           int      `json:"num_workers"`
+	FlushBytes           int      `json:"flush_bytes"`
+	FlushInternalSeconds int      `json:"flush_internal_seconds"`
+}
+
+type GoogleDrive struct {
 	BaseFolderID string `json:"base_folder_id"`
 	AdminEmail   string `json:"admin_email"`
 
@@ -60,24 +69,12 @@ type Paths struct {
 	InitUser string `json:"init_user"`
 }
 
-type SMTP struct {
+type Brevo struct {
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	Username string `json:"username"`
 	Password string `json:"password"`
 	APIKey   string `json:"api_key"`
-}
-
-type ClickHouse struct {
-	Database               string   `json:"database"`
-	Username               string   `json:"username"`
-	Password               string   `json:"password"`
-	Addr                   []string `json:"addr"`
-	Debug                  bool     `json:"debug"`
-	MaxOpenConns           int      `json:"max_open_conns"`
-	MaxIdleConns           int      `json:"max_idle_conns"`
-	DialTimeoutSeconds     int      `json:"dial_timeout_seconds"`
-	ConnMaxLifetimeSeconds int      `json:"conn_max_lifetime_seconds"`
 }
 
 type MySQL struct {
@@ -101,20 +98,16 @@ func NewConfig() *Config {
 			Port:     3306,
 			Database: "metadata_db",
 		},
-		QueryDB: ClickHouse{
-			Database:               "cdp_db",
-			Addr:                   []string{"127.0.0.1:9000"},
-			Debug:                  true,
-			MaxOpenConns:           10,
-			MaxIdleConns:           10,
-			DialTimeoutSeconds:     10,
-			ConnMaxLifetimeSeconds: 3600,
+		QueryDB: ElasticSearch{
+			Addr:     []string{},
+			Username: "",
+			Password: "",
 		},
-		FileStore: FileStore{
+		FileStore: GoogleDrive{
 			BaseFolderID: "",
 			AdminEmail:   "",
 		},
-		SMTP: SMTP{
+		SMTP: Brevo{
 			Host:     "127.0.0.1",
 			Port:     25,
 			Username: "",

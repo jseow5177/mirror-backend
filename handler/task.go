@@ -8,27 +8,243 @@ import (
 	"cdp/pkg/validator"
 	"cdp/repo"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/errgroup"
 	"mime/multipart"
 	"time"
 )
 
+const batchSize = 3_000
+
 type TaskHandler interface {
 	CreateFileUploadTask(ctx context.Context, req *CreateFileUploadTaskRequest, res *CreateFileUploadTaskResponse) error
 	GetFileUploadTasks(ctx context.Context, req *GetFileUploadTasksRequest, res *GetFileUploadTasksResponse) error
+	RunFileUploadTasks(ctx context.Context, req *RunFileUploadTasksRequest, res *RunFileUploadTasksResponse) error
 }
 
 type taskHandler struct {
-	taskRepo repo.TaskRepo
-	fileRepo repo.FileRepo
+	taskRepo   repo.TaskRepo
+	fileRepo   repo.FileRepo
+	queryRepo  repo.QueryRepo
+	tenantRepo repo.TenantRepo
 }
 
-func NewTaskHandler(taskRepo repo.TaskRepo, fileRepo repo.FileRepo) TaskHandler {
+func NewTaskHandler(taskRepo repo.TaskRepo, fileRepo repo.FileRepo, queryRepo repo.QueryRepo, tenantRepo repo.TenantRepo) TaskHandler {
 	return &taskHandler{
 		taskRepo,
 		fileRepo,
+		queryRepo,
+		tenantRepo,
 	}
+}
+
+type RunFileUploadTasksRequest struct{}
+
+type RunFileUploadTasksResponse struct{}
+
+func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTasksRequest, _ *RunFileUploadTasksResponse) error {
+	ctx = context.WithoutCancel(ctx)
+
+	var (
+		g  = new(errgroup.Group)
+		c  = 10
+		ch = make(chan struct{}, c)
+	)
+
+	// get tag resource only
+	tasks, err := h.taskRepo.GetPendingFileUploadTasks(ctx, entity.ResourceTypeTag)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get pending file upload tasks failed: %v", err)
+		return err
+	}
+
+	type taskStatus struct {
+		err  error
+		task *entity.Task
+	}
+
+	// track task status
+	statusChan := make(chan taskStatus, len(tasks))
+	g.Go(func() error {
+		var count int
+		for {
+			select {
+			case te := <-statusChan:
+				var (
+					task   = te.task
+					status = entity.TaskStatusSuccess
+				)
+				if te.err != nil {
+					status = entity.TaskStatusFailed
+				}
+				log.Ctx(ctx).Info().Msgf("task is done, setting status to %d, task_id: %v", status, task.GetID())
+
+				task.Update(&entity.Task{
+					Status: status,
+				})
+				if err = h.taskRepo.Update(ctx, task); err != nil {
+					log.Ctx(ctx).Error().Msgf("set campaign status failed err: %v, task_id: %v, status: %v", err, task.GetID(), status)
+				}
+			}
+
+			count++
+			if count == len(tasks) {
+				break
+			}
+		}
+		return nil
+	})
+
+	// process tasks
+	for _, task := range tasks {
+		select {
+		case ch <- struct{}{}:
+		}
+
+		task := task
+		g.Go(func() error {
+			// release go routine
+			defer func() {
+				<-ch
+			}()
+
+			fileID := task.GetFileID()
+
+			// get tenant
+			tenant, err := h.tenantRepo.GetByID(ctx, task.GetTenantID())
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("get tenant failed: %v, task_id: %v", err, task.GetID())
+				statusChan <- taskStatus{err: err, task: task}
+				return err
+			}
+
+			// download file data
+			rows, err := h.fileRepo.DownloadFile(ctx, task.GetFileID())
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("get file %s failed: %v, task_id: %v", fileID, err, task.GetID())
+				statusChan <- taskStatus{err: err, task: task}
+				return err
+			}
+
+			// set task to running
+			task.Update(&entity.Task{
+				Status: entity.TaskStatusRunning,
+			})
+			if err := h.taskRepo.Update(ctx, task); err != nil {
+				log.Ctx(ctx).Error().Msgf("set task to running err: %v, task_id: %v", err, task.GetID())
+				statusChan <- taskStatus{err: err, task: task}
+				return err
+			}
+
+			// split data into batches
+			var (
+				batches = make([][]*entity.UdTagVal, 0)
+				batch   = make([]*entity.UdTagVal, 0)
+			)
+			for i, row := range rows {
+				if len(row) != 2 {
+					log.Ctx(ctx).Warn().Msgf("invalid row: %v, file: %s", row, fileID)
+					continue
+				}
+
+				batch = append(batch, &entity.UdTagVal{
+					Ud: &entity.Ud{
+						ID:     goutil.String(row[0]),
+						IDType: entity.IDTypeEmail,
+					},
+					TagVals: []*entity.TagVal{
+						{
+							TagID:  task.ResourceID,
+							TagVal: row[1],
+						},
+					},
+				})
+
+				if len(batch) >= batchSize || i == len(rows)-1 {
+					batches = append(batches, batch)
+					batch = make([]*entity.UdTagVal, 0)
+				}
+			}
+
+			subG := new(errgroup.Group)
+			subG.Go(func() error {
+				var (
+					count    uint64
+					batchNum int
+				)
+
+				ticker := time.NewTicker(2 * time.Second)
+				defer ticker.Stop()
+
+				for {
+					select {
+					case <-h.queryRepo.OnInsertSuccess():
+						count++
+					case <-h.queryRepo.OnInsertFailure():
+						count++
+						return errors.New("encounter error in batch insert")
+					case <-ticker.C:
+						if task.GetSize() > 0 {
+							progress := count * 100 / task.GetSize()
+							task.Update(&entity.Task{
+								ExtInfo: &entity.TaskExtInfo{
+									Progress: goutil.Uint64(progress),
+								},
+							})
+							// no need return err
+							if err := h.taskRepo.Update(ctx, task); err != nil {
+								log.Ctx(ctx).Error().Msgf("set task progress err: %v, task_id: %v", err, task.GetID())
+							}
+						}
+					default:
+					}
+
+					// batch upsert
+					if batchNum < len(batches) {
+						batch = batches[batchNum]
+
+						if err := h.queryRepo.BatchUpsert(ctx, tenant.GetName(), batch); err != nil {
+							log.Ctx(ctx).Error().Msgf("batch upsert err: %v, task_id: %v", err, task.GetID())
+							statusChan <- taskStatus{err: err, task: task}
+							return err
+						}
+
+						batchNum++
+					}
+
+					// full completion
+					if count == task.GetSize() {
+						task.Update(&entity.Task{
+							ExtInfo: &entity.TaskExtInfo{
+								Progress: goutil.Uint64(100),
+							},
+						})
+						if err := h.taskRepo.Update(ctx, task); err != nil {
+							log.Ctx(ctx).Error().Msgf("final task progress update err: %v, task_id: %v", err, task.GetID())
+							return err
+						}
+
+						log.Ctx(ctx).Info().Msgf("batch upsert is done, task_id: %v", task.GetID())
+
+						return nil
+					}
+				}
+			})
+
+			if err := subG.Wait(); err != nil {
+				statusChan <- taskStatus{err: err, task: task}
+				return err
+			}
+
+			statusChan <- taskStatus{err: nil, task: task}
+
+			return nil
+		})
+	}
+
+	return nil
 }
 
 type GetFileUploadTasksRequest struct {
@@ -113,6 +329,7 @@ func (req *CreateFileUploadTaskRequest) ToTask(extInfo *entity.TaskExtInfo) *ent
 	now := time.Now()
 	return &entity.Task{
 		ResourceID:   req.ResourceID,
+		TenantID:     req.Tenant.ID,
 		ResourceType: entity.ResourceType(req.GetResourceType()),
 		Status:       entity.TaskStatusPending,
 		TaskType:     entity.TaskTypeFileUpload,
@@ -147,15 +364,8 @@ func (h *taskHandler) CreateFileUploadTask(ctx context.Context, req *CreateFileU
 		return errutil.ValidationError(err)
 	}
 
-	suffix, err := goutil.GenerateRandomString(16)
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("generate random string failed: %v", err)
-		return err
-	}
-
-	fileName := fmt.Sprintf("%s-%s-%d",
+	fileName := fmt.Sprintf("%s:%d",
 		req.GetFileName(),
-		goutil.Base64Encode(suffix),
 		time.Now().Unix(),
 	)
 
@@ -200,6 +410,11 @@ func (h *taskHandler) countRows(file multipart.File) (uint64, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+
+	_, err := file.Seek(0, 0)
+	if err != nil {
 		return 0, err
 	}
 

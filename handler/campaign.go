@@ -218,7 +218,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 			// send out emails by buckets
 			for i, emailBucket := range emailBuckets {
 				var (
-					progress      int
+					count         uint64
 					campaignEmail = campaignEmails[i]
 					batchSize     = dep.MaxRecipientsPerSend
 				)
@@ -236,7 +236,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 						})
 					}
 
-					progress += len(to)
+					count += uint64(len(to))
 
 					sendSmtpEmail := &dep.SendSmtpEmail{
 						CampaignEmailID: campaignEmail.GetID(),
@@ -248,13 +248,18 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 						HtmlContent: htmls[i],
 					}
 
+					var progress uint64
+					if campaign.GetSegmentSize() > 0 {
+						progress = count * 100 / campaign.GetSegmentSize()
+					}
+
 					// Send the email and handle errors
 					if err = h.emailService.SendEmail(ctx, sendSmtpEmail); err != nil {
 						log.Ctx(ctx).Error().Msgf("send email failed: %v, campaign_email_id: %v, batch_start: %d, batch_end: %d", err,
 							campaignEmail.GetID(), start, end)
 					} else {
 						campaign.Update(&entity.Campaign{
-							Progress: goutil.Uint64(uint64(progress)),
+							Progress: goutil.Uint64(progress),
 							Status:   entity.CampaignStatusRunning,
 						})
 						if err = h.campaignRepo.Update(ctx, campaign); err != nil {
@@ -262,8 +267,6 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 								campaign.GetID(), progress)
 						}
 					}
-
-					time.Sleep(1 * time.Second)
 				}
 			}
 

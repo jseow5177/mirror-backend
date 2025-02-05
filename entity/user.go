@@ -63,12 +63,12 @@ func NewUser(tenantID uint64, email string, password string, displayName string)
 func (e *User) Update(t *User) bool {
 	var hasChange bool
 
-	if e.Status != t.Status {
+	if t.Status != UserStatusUnknown && e.Status != t.Status {
 		hasChange = true
 		e.Status = t.Status
 	}
 
-	if e.GetPassword() != t.GetPassword() {
+	if t.Password != nil && e.GetPassword() != t.GetPassword() {
 		hasChange = true
 		e.Password = t.Password
 	}

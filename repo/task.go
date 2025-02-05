@@ -9,6 +9,7 @@ import (
 
 type Task struct {
 	ID           *uint64
+	TenantID     *uint64
 	ResourceID   *uint64
 	Status       *uint32
 	ResourceType *uint32
@@ -53,7 +54,9 @@ func (m *Task) GetResourceType() uint32 {
 
 type TaskRepo interface {
 	Create(ctx context.Context, task *entity.Task) (uint64, error)
+	Update(ctx context.Context, task *entity.Task) error
 	GetByResourceIDAndType(ctx context.Context, resourceID uint64, resourceType entity.ResourceType, p *Pagination) ([]*entity.Task, *Pagination, error)
+	GetPendingFileUploadTasks(ctx context.Context, resourceType entity.ResourceType) ([]*entity.Task, error)
 }
 
 func NewTaskRepo(baseRepo BaseRepo) TaskRepo {
@@ -64,6 +67,32 @@ func NewTaskRepo(baseRepo BaseRepo) TaskRepo {
 
 type taskRepo struct {
 	baseRepo BaseRepo
+}
+
+func (r *taskRepo) GetPendingFileUploadTasks(ctx context.Context, resourceType entity.ResourceType) ([]*entity.Task, error) {
+	tasks, _, err := r.getMany(ctx, []*Condition{
+		{
+			Field:         "resource_type",
+			Value:         resourceType,
+			Op:            OpEq,
+			NextLogicalOp: LogicalOpAnd,
+		},
+		{
+			Field:         "task_type",
+			Value:         entity.TaskTypeFileUpload,
+			Op:            OpEq,
+			NextLogicalOp: LogicalOpAnd,
+		},
+		{
+			Field: "status",
+			Value: entity.TaskStatusPending,
+			Op:    OpEq,
+		},
+	}, nil)
+	if err != nil {
+		return nil, err
+	}
+	return tasks, nil
 }
 
 func (r *taskRepo) GetByResourceIDAndType(ctx context.Context, resourceID uint64, resourceType entity.ResourceType, p *Pagination) ([]*entity.Task, *Pagination, error) {
@@ -80,6 +109,19 @@ func (r *taskRepo) GetByResourceIDAndType(ctx context.Context, resourceID uint64
 			Op:    OpEq,
 		},
 	}, p)
+}
+
+func (r *taskRepo) Update(ctx context.Context, task *entity.Task) error {
+	taskModel, err := ToTaskModel(task)
+	if err != nil {
+		return err
+	}
+
+	if err := r.baseRepo.Update(ctx, taskModel); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (r *taskRepo) getMany(ctx context.Context, conditions []*Condition, p *Pagination) ([]*entity.Task, *Pagination, error) {
@@ -124,6 +166,7 @@ func ToTaskModel(task *entity.Task) (*Task, error) {
 
 	return &Task{
 		ID:           task.ID,
+		TenantID:     task.TenantID,
 		ResourceID:   task.ResourceID,
 		Status:       goutil.Uint32(uint32(task.GetStatus())),
 		TaskType:     goutil.Uint32(uint32(task.GetTaskType())),
@@ -143,6 +186,7 @@ func ToTask(task *Task) (*entity.Task, error) {
 
 	return &entity.Task{
 		ID:           task.ID,
+		TenantID:     task.TenantID,
 		ResourceID:   task.ResourceID,
 		Status:       entity.TaskStatus(task.GetStatus()),
 		TaskType:     entity.TaskType(task.GetTaskType()),

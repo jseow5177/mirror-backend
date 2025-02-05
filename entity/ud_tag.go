@@ -1,5 +1,10 @@
 package entity
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 type IDType uint32
 
 const (
@@ -23,10 +28,30 @@ func (e *Ud) GetID() string {
 	return ""
 }
 
+func (e *Ud) GetIDType() IDType {
+	if e != nil {
+		return e.IDType
+	}
+	return IDTypeUnknown
+}
+
 type TagVal struct {
-	TagID   *uint64 `json:"tag_id,omitempty"`
-	TagName *string `json:"tag_name,omitempty"`
-	TagVal  *string `json:"tag_val,omitempty"`
+	TagID  *uint64     `json:"tag_id,omitempty"`
+	TagVal interface{} `json:"tag_val,omitempty"`
+}
+
+func (e *TagVal) GetTagID() uint64 {
+	if e != nil && e.TagID != nil {
+		return *e.TagID
+	}
+	return 0
+}
+
+func (e *TagVal) GetTagVal() interface{} {
+	if e != nil && e.TagVal != nil {
+		return e.TagVal
+	}
+	return nil
 }
 
 type UdTagVal struct {
@@ -34,12 +59,27 @@ type UdTagVal struct {
 	TagVals []*TagVal `json:"tag_vals,omitempty"`
 }
 
-type UdTags struct {
-	Tag  *Tag     `json:"tag,omitempty"`
-	Data []*UdTag `json:"data,omitempty"`
+func (e *UdTagVal) ToDocID() string {
+	if e == nil || e.Ud == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", e.Ud.GetID(), e.Ud.GetIDType())
 }
 
-type UdTag struct {
-	MappingID *MappingID `json:"mapping_id,omitempty"`
-	TagValue  *string    `json:"tag_value,omitempty"`
+func (e *UdTagVal) ToDoc() (string, error) {
+	if e == nil || e.Ud == nil {
+		return "", nil
+	}
+
+	tagVals := make(map[string]interface{})
+	for _, tagVal := range e.TagVals {
+		tagVals[fmt.Sprintf("tag_%d", tagVal.GetTagID())] = tagVal.GetTagVal()
+	}
+
+	b, err := json.Marshal(tagVals)
+	if err != nil {
+		return "", err
+	}
+
+	return string(b), nil
 }

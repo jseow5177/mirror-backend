@@ -1,9 +1,11 @@
 package entity
 
 import (
+	"cdp/pkg/goutil"
 	"encoding/json"
 	"errors"
 	"mime/multipart"
+	"time"
 )
 
 var (
@@ -57,6 +59,13 @@ type TaskExtInfo struct {
 	Progress    *uint64 `json:"progress,omitempty"`
 }
 
+func (e *TaskExtInfo) GetProgress() uint64 {
+	if e != nil && e.Progress != nil {
+		return *e.Progress
+	}
+	return 0
+}
+
 func (e *TaskExtInfo) ToString() (string, error) {
 	if e == nil {
 		return "{}", nil
@@ -72,6 +81,7 @@ func (e *TaskExtInfo) ToString() (string, error) {
 
 type Task struct {
 	ID           *uint64      `json:"id,omitempty"`
+	TenantID     *uint64      `json:"tenant_id,omitempty"`
 	ResourceID   *uint64      `json:"resource_id,omitempty"`
 	Status       TaskStatus   `json:"status,omitempty"`
 	TaskType     TaskType     `json:"task_type,omitempty"`
@@ -80,6 +90,20 @@ type Task struct {
 	CreatorID    *uint64      `json:"creator_id,omitempty"`
 	CreateTime   *uint64      `json:"create_time,omitempty"`
 	UpdateTime   *uint64      `json:"update_time,omitempty"`
+}
+
+func (e *Task) GetID() uint64 {
+	if e != nil && e.ID != nil {
+		return *e.ID
+	}
+	return 0
+}
+
+func (e *Task) GetTenantID() uint64 {
+	if e != nil && e.TenantID != nil {
+		return *e.TenantID
+	}
+	return 0
 }
 
 func (e *Task) GetTaskType() TaskType {
@@ -96,6 +120,13 @@ func (e *Task) GetStatus() TaskStatus {
 	return TaskStatusUnknown
 }
 
+func (e *Task) GetResourceID() uint64 {
+	if e != nil && e.ResourceID != nil {
+		return *e.ResourceID
+	}
+	return 0
+}
+
 func (e *Task) GetResourceType() ResourceType {
 	if e != nil {
 		return e.ResourceType
@@ -108,4 +139,45 @@ func (e *Task) GetExtInfo() *TaskExtInfo {
 		return e.ExtInfo
 	}
 	return nil
+}
+
+func (e *Task) GetFileID() string {
+	if e != nil && e.ExtInfo != nil {
+		return *e.ExtInfo.FileID
+	}
+	return ""
+}
+
+func (e *Task) GetSize() uint64 {
+	if e != nil && e.ExtInfo != nil {
+		return *e.ExtInfo.Size
+	}
+	return 0
+}
+
+func (e *Task) Update(t *Task) bool {
+	var hasChange bool
+
+	if t.Status != TaskStatusUnknown && e.Status != t.Status {
+		hasChange = true
+		e.Status = t.Status
+	}
+
+	if t.ExtInfo != nil {
+		oldExtInfo := e.ExtInfo
+		if oldExtInfo == nil {
+			oldExtInfo = new(TaskExtInfo)
+		}
+
+		if t.ExtInfo.Progress != nil && oldExtInfo.GetProgress() != t.ExtInfo.GetProgress() {
+			hasChange = true
+			oldExtInfo.Progress = t.ExtInfo.Progress
+		}
+	}
+
+	if hasChange {
+		e.UpdateTime = goutil.Uint64(uint64(time.Now().Unix()))
+	}
+
+	return hasChange
 }

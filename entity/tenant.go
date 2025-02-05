@@ -45,32 +45,23 @@ type Tenant struct {
 	UpdateTime *uint64        `json:"update_time,omitempty"`
 }
 
-func NewTenant(name string, status TenantStatus, folderID string) *Tenant {
-	now := uint64(time.Now().Unix())
-
-	return &Tenant{
-		Name:   goutil.String(name),
-		Status: status,
-		ExtInfo: &TenantExtInfo{
-			FolderID: folderID,
-		},
-		CreateTime: goutil.Uint64(now),
-		UpdateTime: goutil.Uint64(now),
-	}
-}
-
 func (e *Tenant) Update(t *Tenant) bool {
 	var hasChange bool
 
-	if e.Status != t.Status {
+	if t.Status != TenantStatusUnknown && e.Status != t.Status {
 		hasChange = true
 		e.Status = t.Status
 	}
 
 	if t.ExtInfo != nil {
-		if e.ExtInfo.FolderID != t.ExtInfo.FolderID {
+		oldExtInfo := e.ExtInfo
+		if oldExtInfo == nil {
+			oldExtInfo = new(TenantExtInfo)
+		}
+
+		if t.ExtInfo.FolderID != "" && oldExtInfo.FolderID != t.ExtInfo.FolderID {
 			hasChange = true
-			e.ExtInfo.FolderID = t.ExtInfo.FolderID
+			oldExtInfo.FolderID = t.ExtInfo.FolderID
 		}
 	}
 

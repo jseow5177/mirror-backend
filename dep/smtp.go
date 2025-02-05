@@ -35,9 +35,9 @@ type emailService struct {
 	apiKey string
 }
 
-func NewEmailService(_ context.Context, cfg *config.Config) (EmailService, error) {
+func NewEmailService(_ context.Context, cfg config.Brevo) (EmailService, error) {
 	return &emailService{
-		apiKey: cfg.SMTP.APIKey,
+		apiKey: cfg.APIKey,
 	}, nil
 }
 

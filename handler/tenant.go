@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"github.com/rs/zerolog/log"
 	"path"
+	"time"
 )
 
 type TenantHandler interface {
@@ -31,6 +32,7 @@ type tenantHandler struct {
 	activationRepo repo.ActivationRepo
 	emailService   dep.EmailService
 	fileRepo       repo.FileRepo
+	queryRepo      repo.QueryRepo
 }
 
 func NewTenantHandler(
@@ -41,6 +43,7 @@ func NewTenantHandler(
 	activationRepo repo.ActivationRepo,
 	emailService dep.EmailService,
 	fileRepo repo.FileRepo,
+	queryRepo repo.QueryRepo,
 ) TenantHandler {
 	return &tenantHandler{
 		cfg:            cfg,
@@ -50,6 +53,7 @@ func NewTenantHandler(
 		activationRepo: activationRepo,
 		emailService:   emailService,
 		fileRepo:       fileRepo,
+		queryRepo:      queryRepo,
 	}
 }
 
@@ -65,7 +69,17 @@ func (r *CreateTenantRequest) GetName() string {
 }
 
 func (r *CreateTenantRequest) ToTenant() *entity.Tenant {
-	return entity.NewTenant(r.GetName(), entity.TenantStatusPending, "")
+	now := uint64(time.Now().Unix())
+
+	return &entity.Tenant{
+		Name:   r.Name,
+		Status: entity.TenantStatusPending,
+		ExtInfo: &entity.TenantExtInfo{
+			FolderID: "",
+		},
+		CreateTime: goutil.Uint64(now),
+		UpdateTime: goutil.Uint64(now),
+	}
 }
 
 type CreateTenantResponse struct {
@@ -349,6 +363,7 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 			}
 		}
 
+		// create file store
 		folderID, err := h.fileRepo.CreateFolder(ctx, tenant.GetName())
 		if err != nil {
 			log.Ctx(ctx).Error().Msgf("create tenant folder failed: %v, tenant: %v", err, tenant.GetName())
@@ -356,15 +371,22 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 		}
 
 		tenant.Update(
-			entity.NewTenant(
-				tenant.GetName(),
-				entity.TenantStatusNormal,
-				folderID,
-			),
+			&entity.Tenant{
+				Status: entity.TenantStatusNormal,
+				ExtInfo: &entity.TenantExtInfo{
+					FolderID: folderID,
+				},
+			},
 		)
 
 		if err := h.tenantRepo.Update(ctx, tenant); err != nil {
 			log.Ctx(ctx).Error().Msgf("update tenant failed: %v", err)
+			return err
+		}
+
+		// create query store
+		if err := h.queryRepo.CreateStore(ctx, tenant.GetName()); err != nil {
+			log.Ctx(ctx).Error().Msgf("create query store failed: %v", err)
 			return err
 		}
 

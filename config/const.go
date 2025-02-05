@@ -34,6 +34,7 @@ const (
 	PathIsLoggedIn           = "/is_logged_in"
 	PathCreateFileUploadTask = "/create_file_upload_task"
 	PathGetFileUploadTasks   = "/get_file_upload_tasks"
+	PathRunFileUploadTasks   = "/run_file_upload_tasks"
 )
 
 const (

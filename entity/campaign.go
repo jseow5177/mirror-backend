@@ -52,20 +52,34 @@ func (e *Campaign) GetStatus() CampaignStatus {
 	return CampaignStatusUnknown
 }
 
+func (e *Campaign) GetSegmentSize() uint64 {
+	if e != nil && e.SegmentSize != nil {
+		return *e.SegmentSize
+	}
+	return 0
+}
+
+func (e *Campaign) GetProgress() uint64 {
+	if e != nil && e.Progress != nil {
+		return *e.Progress
+	}
+	return 0
+}
+
 func (e *Campaign) Update(c *Campaign) bool {
 	var hasChange bool
 
-	if e.Progress != c.Progress {
+	if c.Progress != nil && e.GetProgress() != c.GetProgress() {
 		hasChange = true
 		e.Progress = c.Progress
 	}
 
-	if e.SegmentSize != c.SegmentSize {
+	if c.SegmentSize != nil && e.GetSegmentSize() != c.GetSegmentSize() {
 		hasChange = true
 		e.SegmentSize = c.SegmentSize
 	}
 
-	if e.Status != c.Status {
+	if c.Status != CampaignStatusUnknown && e.Status != c.Status {
 		hasChange = true
 		e.Status = c.Status
 	}
