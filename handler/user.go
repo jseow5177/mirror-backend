@@ -102,20 +102,22 @@ func (h *userHandler) LogIn(ctx context.Context, req *LogInRequest, res *LogInRe
 		return errutil.ValidationError(err)
 	}
 
+	stdErr := errutil.ValidationError(errors.New("incorrect tenant name or username or password"))
+
 	tenant, err := h.tenantRepo.GetByName(ctx, req.GetTenantName())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get tenant error: %v", err)
-		return err
+		return stdErr
 	}
 
 	user, err := h.userRepo.GetByUsername(ctx, tenant.GetID(), req.GetUsername())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get user error: %v", err)
-		return err
+		return stdErr
 	}
 
 	if !user.ComparePassword(req.GetPassword()) {
-		return errutil.ValidationError(errors.New("wrong username / password"))
+		return stdErr
 	}
 
 	sess, err := entity.NewSession(user.GetID())

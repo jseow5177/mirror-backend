@@ -210,12 +210,12 @@ func (v *queryValidator) validateLookup(ctx context.Context, lookup *entity.Look
 		}
 
 		for _, val := range arr {
-			if ok := tag.IsValidTagValue(val); !ok {
+			if ok := tag.IsValidTagValue(fmt.Sprint(val)); !ok {
 				return fmt.Errorf("lookup tag value %s is invalid", lookup.GetVal())
 			}
 		}
 	} else {
-		if ok := tag.IsValidTagValue(lookup.GetVal()); !ok {
+		if ok := tag.IsValidTagValue(fmt.Sprint(lookup.GetVal())); !ok {
 			return fmt.Errorf("lookup tag value %s is invalid", lookup.GetVal())
 		}
 	}

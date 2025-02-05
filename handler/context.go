@@ -25,6 +25,10 @@ func (c *ContextInfo) GetTenantID() uint64 {
 	return c.Tenant.GetID()
 }
 
+func (c *ContextInfo) GetTenantName() string {
+	return c.Tenant.GetName()
+}
+
 func (c *ContextInfo) GetTenantFolder() string {
 	return c.Tenant.GetExtInfo().GetFolderID()
 }

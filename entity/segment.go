@@ -60,6 +60,13 @@ func (e *Lookup) GetVal() interface{} {
 	return nil
 }
 
+func (e *Lookup) GetNot() bool {
+	if e != nil && e.Not != nil {
+		return *e.Not
+	}
+	return false
+}
+
 type Query struct {
 	Lookups []*Lookup `json:"lookups,omitempty"`
 	Queries []*Query  `json:"queries,omitempty"`
@@ -72,6 +79,13 @@ func (e *Query) GetOp() QueryOp {
 		return e.Op
 	}
 	return ""
+}
+
+func (e *Query) GetNot() bool {
+	if e != nil && e.Not != nil {
+		return *e.Not
+	}
+	return false
 }
 
 func (e *Query) ToString() (string, error) {

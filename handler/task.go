@@ -8,7 +8,6 @@ import (
 	"cdp/pkg/validator"
 	"cdp/repo"
 	"context"
-	"errors"
 	"fmt"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
@@ -29,14 +28,16 @@ type taskHandler struct {
 	fileRepo   repo.FileRepo
 	queryRepo  repo.QueryRepo
 	tenantRepo repo.TenantRepo
+	tagRepo    repo.TagRepo
 }
 
-func NewTaskHandler(taskRepo repo.TaskRepo, fileRepo repo.FileRepo, queryRepo repo.QueryRepo, tenantRepo repo.TenantRepo) TaskHandler {
+func NewTaskHandler(taskRepo repo.TaskRepo, fileRepo repo.FileRepo, queryRepo repo.QueryRepo, tenantRepo repo.TenantRepo, tagRepo repo.TagRepo) TaskHandler {
 	return &taskHandler{
 		taskRepo,
 		fileRepo,
 		queryRepo,
 		tenantRepo,
+		tagRepo,
 	}
 }
 
@@ -78,14 +79,16 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 				)
 				if te.err != nil {
 					status = entity.TaskStatusFailed
+					log.Ctx(ctx).Error().Msgf("[task ID %d] error encountered: %v", task.GetID(), te.err)
+				} else {
+					log.Ctx(ctx).Info().Msgf("[task ID %d]: task success!", task.GetID())
 				}
-				log.Ctx(ctx).Info().Msgf("task is done, setting status to %d, task_id: %v", status, task.GetID())
 
 				task.Update(&entity.Task{
 					Status: status,
 				})
 				if err = h.taskRepo.Update(ctx, task); err != nil {
-					log.Ctx(ctx).Error().Msgf("set campaign status failed err: %v, task_id: %v, status: %v", err, task.GetID(), status)
+					log.Ctx(ctx).Error().Msgf("[task ID %d] set campaign status failed err: %v, status: %v", task.GetID(), err, status)
 				}
 			}
 
@@ -115,16 +118,30 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 			// get tenant
 			tenant, err := h.tenantRepo.GetByID(ctx, task.GetTenantID())
 			if err != nil {
-				log.Ctx(ctx).Error().Msgf("get tenant failed: %v, task_id: %v", err, task.GetID())
-				statusChan <- taskStatus{err: err, task: task}
+				statusChan <- taskStatus{
+					err:  fmt.Errorf("get tenant failed: %v", err),
+					task: task,
+				}
+				return err
+			}
+
+			// get tag
+			tag, err := h.tagRepo.GetByID(ctx, tenant.GetID(), task.GetResourceID())
+			if err != nil {
+				statusChan <- taskStatus{
+					err:  fmt.Errorf("get tag failed: %v", err),
+					task: task,
+				}
 				return err
 			}
 
 			// download file data
 			rows, err := h.fileRepo.DownloadFile(ctx, task.GetFileID())
 			if err != nil {
-				log.Ctx(ctx).Error().Msgf("get file %s failed: %v, task_id: %v", fileID, err, task.GetID())
-				statusChan <- taskStatus{err: err, task: task}
+				statusChan <- taskStatus{
+					err:  fmt.Errorf("get file %s failed: %v", fileID, err),
+					task: task,
+				}
 				return err
 			}
 
@@ -133,8 +150,10 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 				Status: entity.TaskStatusRunning,
 			})
 			if err := h.taskRepo.Update(ctx, task); err != nil {
-				log.Ctx(ctx).Error().Msgf("set task to running err: %v, task_id: %v", err, task.GetID())
-				statusChan <- taskStatus{err: err, task: task}
+				statusChan <- taskStatus{
+					err:  fmt.Errorf("set task to running failed: %v", err),
+					task: task,
+				}
 				return err
 			}
 
@@ -145,8 +164,20 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 			)
 			for i, row := range rows {
 				if len(row) != 2 {
-					log.Ctx(ctx).Warn().Msgf("invalid row: %v, file: %s", row, fileID)
-					continue
+					statusChan <- taskStatus{
+						err:  fmt.Errorf("invalid row: %v, file: %s", row, fileID),
+						task: task,
+					}
+					return err
+				}
+
+				v, err := tag.FormatTagValue(row[1])
+				if err != nil {
+					statusChan <- taskStatus{
+						err:  fmt.Errorf("invalid tag value: %v, file: %s", rows[1], fileID),
+						task: task,
+					}
+					return err
 				}
 
 				batch = append(batch, &entity.UdTagVal{
@@ -157,7 +188,7 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 					TagVals: []*entity.TagVal{
 						{
 							TagID:  task.ResourceID,
-							TagVal: row[1],
+							TagVal: v,
 						},
 					},
 				})
@@ -182,9 +213,9 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 					select {
 					case <-h.queryRepo.OnInsertSuccess():
 						count++
-					case <-h.queryRepo.OnInsertFailure():
+					case insertErr := <-h.queryRepo.OnInsertFailure():
 						count++
-						return errors.New("encounter error in batch insert")
+						return insertErr
 					case <-ticker.C:
 						if task.GetSize() > 0 {
 							progress := count * 100 / task.GetSize()
@@ -193,7 +224,7 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 									Progress: goutil.Uint64(progress),
 								},
 							})
-							// no need return err
+							// no need return err, let the next update to correct the error
 							if err := h.taskRepo.Update(ctx, task); err != nil {
 								log.Ctx(ctx).Error().Msgf("set task progress err: %v, task_id: %v", err, task.GetID())
 							}
@@ -206,9 +237,7 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 						batch = batches[batchNum]
 
 						if err := h.queryRepo.BatchUpsert(ctx, tenant.GetName(), batch); err != nil {
-							log.Ctx(ctx).Error().Msgf("batch upsert err: %v, task_id: %v", err, task.GetID())
-							statusChan <- taskStatus{err: err, task: task}
-							return err
+							return fmt.Errorf("batch upsert err: %v", err)
 						}
 
 						batchNum++
@@ -222,11 +251,8 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 							},
 						})
 						if err := h.taskRepo.Update(ctx, task); err != nil {
-							log.Ctx(ctx).Error().Msgf("final task progress update err: %v, task_id: %v", err, task.GetID())
-							return err
+							return fmt.Errorf("set task to 100%% completion err: %v", err)
 						}
-
-						log.Ctx(ctx).Info().Msgf("batch upsert is done, task_id: %v", task.GetID())
 
 						return nil
 					}

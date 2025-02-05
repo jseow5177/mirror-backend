@@ -4,8 +4,25 @@ import (
 	"cdp/pkg/goutil"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"strconv"
 )
+
+type floatFrac float64
+
+func (f floatFrac) MarshalJSON() ([]byte, error) {
+	n := float64(f)
+	if math.IsInf(n, 0) || math.IsNaN(n) {
+		return nil, errors.New("unsupported number")
+	}
+
+	prec := -1
+	if math.Trunc(n) == n {
+		prec = 1 // Force ".0" for integers.
+	}
+	return strconv.AppendFloat(nil, n, 'f', prec, 64), nil
+}
 
 var (
 	ErrInvalidTagValueType = errors.New("invalid tag value type")
@@ -155,24 +172,28 @@ func (e *Tag) InEnum(tagValue string) bool {
 	return true
 }
 
-func (e *Tag) IsValidTagValue(value interface{}) bool {
-	v, ok := value.(string)
-	if !ok {
-		return false
-	}
+func (e *Tag) IsValidTagValue(v string) bool {
+	_, err := e.FormatTagValue(v)
+	return err == nil
+}
 
+func (e *Tag) FormatTagValue(v string) (interface{}, error) {
 	switch e.GetValueType() {
 	case TagValueTypeStr:
+		return fmt.Sprint(v), nil
 	case TagValueTypeInt:
-		if _, err := strconv.Atoi(v); err != nil {
-			return false
+		if i, err := strconv.Atoi(v); err != nil {
+			return nil, err
+		} else {
+			return i, nil
 		}
 	case TagValueTypeFloat:
-		if _, err := strconv.ParseFloat(v, 64); err != nil {
-			return false
+		if f, err := strconv.ParseFloat(v, 64); err != nil {
+			return nil, err
+		} else {
+			return floatFrac(f), nil
 		}
 	default:
-		return false
+		return nil, errors.New("unsupported tag value type")
 	}
-	return true
 }

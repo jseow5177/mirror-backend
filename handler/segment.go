@@ -27,13 +27,15 @@ type segmentHandler struct {
 	cfg         *config.Config
 	segmentRepo repo.SegmentRepo
 	tagRepo     repo.TagRepo
+	queryRepo   repo.QueryRepo
 }
 
-func NewSegmentHandler(cfg *config.Config, tagRepo repo.TagRepo, segmentRepo repo.SegmentRepo) SegmentHandler {
+func NewSegmentHandler(cfg *config.Config, tagRepo repo.TagRepo, segmentRepo repo.SegmentRepo, queryRepo repo.QueryRepo) SegmentHandler {
 	return &segmentHandler{
 		cfg:         cfg,
 		tagRepo:     tagRepo,
 		segmentRepo: segmentRepo,
+		queryRepo:   queryRepo,
 	}
 }
 
@@ -296,13 +298,19 @@ func (h *segmentHandler) CountUd(ctx context.Context, req *CountUdRequest, res *
 		return errutil.ValidationError(err)
 	}
 
-	_, err := h.segmentRepo.GetByID(ctx, req.GetTenantID(), req.GetSegmentID())
+	segment, err := h.segmentRepo.GetByID(ctx, req.GetTenantID(), req.GetSegmentID())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get segment failed: %v", err)
 		return err
 	}
 
-	res.Count = goutil.Uint64(0)
+	count, err := h.queryRepo.Count(ctx, req.GetTenantName(), segment.GetCriteria())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get segment count failed: %v", err)
+		return err
+	}
+
+	res.Count = goutil.Uint64(count)
 
 	return nil
 }
@@ -314,7 +322,7 @@ type PreviewUdRequest struct {
 }
 
 type PreviewUdResponse struct {
-	Count *int64 `json:"count,omitempty"`
+	Count *uint64 `json:"count,omitempty"`
 }
 
 var PreviewUdValidator = validator.MustForm(map[string]validator.Validator{
@@ -328,12 +336,17 @@ func (h *segmentHandler) PreviewUd(ctx context.Context, req *PreviewUdRequest, r
 
 	v := NewQueryValidator(req.GetTenantID(), h.tagRepo, false)
 	if err := v.Validate(ctx, req.Criteria); err != nil {
-		log.Ctx(ctx).Warn().Msgf("validate segment failed: %v", err)
-		res.Count = goutil.Int64(-1)
-		return nil
+		log.Ctx(ctx).Error().Msgf("validate segment failed: %v", err)
+		return err
 	}
 
-	res.Count = goutil.Int64(0)
+	count, err := h.queryRepo.Count(ctx, req.GetTenantName(), req.Criteria)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("preview segment count failed: %v", err)
+		return err
+	}
+
+	res.Count = goutil.Uint64(count)
 
 	return nil
 }

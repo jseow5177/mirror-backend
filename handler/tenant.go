@@ -139,14 +139,7 @@ func (h *tenantHandler) CreateTenant(ctx context.Context, req *CreateTenantReque
 }
 
 type GetTenantRequest struct {
-	Name *string `json:"name,omitempty"`
-}
-
-func (r *GetTenantRequest) GetName() string {
-	if r != nil && r.Name != nil {
-		return *r.Name
-	}
-	return ""
+	ContextInfo
 }
 
 type GetTenantResponse struct {
@@ -154,21 +147,15 @@ type GetTenantResponse struct {
 }
 
 var GetTenantValidator = validator.MustForm(map[string]validator.Validator{
-	"name": ResourceNameValidator(false),
+	"ContextInfo": ContextInfoValidator,
 })
 
-func (h *tenantHandler) GetTenant(ctx context.Context, req *GetTenantRequest, res *GetTenantResponse) error {
+func (h *tenantHandler) GetTenant(_ context.Context, req *GetTenantRequest, res *GetTenantResponse) error {
 	if err := GetTenantValidator.Validate(req); err != nil {
 		return errutil.ValidationError(err)
 	}
 
-	tenant, err := h.tenantRepo.GetByName(ctx, req.GetName())
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get tenant failed: %v", err)
-		return err
-	}
-
-	res.Tenant = tenant
+	res.Tenant = req.Tenant
 
 	return nil
 }
