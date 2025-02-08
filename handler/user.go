@@ -44,7 +44,7 @@ type LogOutRequest struct {
 type LogOutResponse struct{}
 
 var LogOutValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, false),
 })
 
 func (h *userHandler) LogOut(ctx context.Context, req *LogOutRequest, _ *LogOutResponse) error {

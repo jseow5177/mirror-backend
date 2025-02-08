@@ -12,7 +12,10 @@ import (
 	"regexp"
 )
 
-const MaxQueryDepth = 5
+const (
+	MaxQueryDepth   = 5
+	DefaultMaxLimit = 1_000
+)
 
 func PaginationValidator() validator.Validator {
 	return validator.OptionalForm(map[string]validator.Validator{
@@ -21,6 +24,7 @@ func PaginationValidator() validator.Validator {
 		},
 		"limit": &validator.UInt32{
 			Optional: true,
+			Max:      goutil.Uint32(DefaultMaxLimit),
 		},
 	})
 }
@@ -264,19 +268,31 @@ func (v *fileMetaValidator) Validate(value interface{}) error {
 	return nil
 }
 
-var ContextInfoValidator = validator.MustForm(map[string]validator.Validator{
-	"User":   UserValidator,
-	"Tenant": TenantValidator,
-})
-
-var UserValidator = validator.MustForm(map[string]validator.Validator{
+var userForm = map[string]validator.Validator{
 	"id": &validator.UInt64{
 		Optional: false,
 	},
-})
+}
 
-var TenantValidator = validator.MustForm(map[string]validator.Validator{
+var tenantForm = map[string]validator.Validator{
 	"id": &validator.UInt64{
 		Optional: false,
 	},
-})
+}
+
+func ContextInfoValidator(optionalTenant bool, optionalUser bool) validator.Validator {
+	userValidator := validator.MustForm(userForm)
+	if optionalUser {
+		userValidator = validator.OptionalForm(userForm)
+	}
+
+	tenantValidator := validator.MustForm(tenantForm)
+	if optionalTenant {
+		tenantValidator = validator.OptionalForm(tenantForm)
+	}
+
+	return validator.MustForm(map[string]validator.Validator{
+		"User":   userValidator,
+		"Tenant": tenantValidator,
+	})
+}

@@ -15,7 +15,6 @@ type Config struct {
 	SMTP           Brevo         `json:"smtp"`
 	WebPage        WebPage       `json:"web_page"`
 	InternalSender string        `json:"internal_sender"`
-	TestEmails     []string      `json:"test_emails"`
 }
 
 type ElasticSearch struct {
@@ -25,6 +24,7 @@ type ElasticSearch struct {
 	NumWorkers           int      `json:"num_workers"`
 	FlushBytes           int      `json:"flush_bytes"`
 	FlushInternalSeconds int      `json:"flush_internal_seconds"`
+	ScrollTimeoutSeconds int      `json:"scroll_timeout_seconds"`
 }
 
 type GoogleDrive struct {
@@ -121,7 +121,6 @@ func NewConfig() *Config {
 				InitUser: "/init_user?token=%s",
 			},
 		},
-		TestEmails: []string{},
 	}
 }
 

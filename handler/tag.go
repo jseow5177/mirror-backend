@@ -47,7 +47,7 @@ type GetTagResponse struct {
 }
 
 var GetTagValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 	"tag_id":      &validator.UInt64{},
 })
 
@@ -76,7 +76,7 @@ type CountTagsResponse struct {
 }
 
 var CountTagsValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 })
 
 func (h *tagHandler) CountTags(ctx context.Context, req *CountTagsRequest, res *CountTagsResponse) error {
@@ -114,7 +114,7 @@ type GetTagsResponse struct {
 }
 
 var GetTagsValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 	"keyword": &validator.String{
 		Optional: true,
 	},
@@ -186,7 +186,7 @@ type CreateTagResponse struct {
 }
 
 var CreateTagValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, false),
 	"name":        ResourceNameValidator(false),
 	"tag_desc":    ResourceDescValidator(false),
 	"value_type": &validator.UInt32{

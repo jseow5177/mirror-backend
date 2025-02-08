@@ -30,6 +30,7 @@ type Pagination struct {
 	Page    *uint32 `json:"page,omitempty"`
 	Total   *uint32 `json:"total,omitempty"`
 	HasNext *bool   `json:"has_next,omitempty"`
+	Cursor  *string `json:"cursor,omitempty"`
 }
 
 func (p *Pagination) GetLimit() uint32 {
@@ -51,6 +52,13 @@ func (p *Pagination) GetTotal() uint32 {
 		return *p.Total
 	}
 	return 0
+}
+
+func (p *Pagination) GetCursor() string {
+	if p != nil && p.Cursor != nil {
+		return *p.Cursor
+	}
+	return ""
 }
 
 type Filter struct {

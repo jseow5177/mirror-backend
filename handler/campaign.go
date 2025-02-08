@@ -10,6 +10,7 @@ import (
 	"cdp/repo"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"math"
@@ -71,7 +72,7 @@ type GetCampaignsResponse struct {
 }
 
 var GetCampaignsValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(true, false),
 	"keyword": &validator.String{
 		Optional: true,
 	},
@@ -113,12 +114,43 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 		now = time.Now().Unix()
 	)
 
-	// fetch without limit
-	campaigns, err := h.campaignRepo.GetPendingCampaigns(ctx, 0, uint64(now))
+	campaigns, err := h.campaignRepo.GetPendingCampaigns(ctx, uint64(now))
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get campaigns failed: %v", err)
 		return err
 	}
+
+	type campaignStatus struct {
+		err      error
+		campaign *entity.Campaign
+		status   entity.CampaignStatus
+	}
+
+	// track campaign status
+	var (
+		statusChan           = make(chan campaignStatus, len(campaigns))
+		updateCampaignStatus = func(status entity.CampaignStatus, campaign *entity.Campaign, err error) {
+			statusChan <- campaignStatus{err: err, campaign: campaign, status: status}
+		}
+	)
+	g.Go(func() error {
+		for {
+			select {
+			case ce := <-statusChan:
+				campaign := ce.campaign
+				if ce.err != nil {
+					log.Ctx(ctx).Error().Msgf("[campaign ID %d] error encountered: %v", campaign.GetID(), ce.err)
+				}
+
+				campaign.Update(&entity.Campaign{
+					Status: ce.status,
+				})
+				if err = h.campaignRepo.Update(ctx, campaign); err != nil {
+					log.Ctx(ctx).Error().Msgf("[campaign ID %d] set campaign status failed: %v, status: %v", campaign.GetID(), err, ce.status)
+				}
+			}
+		}
+	})
 
 	for _, campaign := range campaigns {
 		select {
@@ -127,23 +159,9 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 
 		campaign := campaign
 		g.Go(func() error {
-			var err error
-
 			// release go routine
 			defer func() {
 				<-ch
-			}()
-
-			// set campaign status
-			defer func() {
-				if err != nil {
-					campaign.Update(&entity.Campaign{
-						Status: entity.CampaignStatusFailed,
-					})
-					if err = h.campaignRepo.Update(ctx, campaign); err != nil {
-						log.Ctx(ctx).Error().Msgf("set campaign to failed err: %v, campaign_id: %v", err, campaign.GetID())
-					}
-				}
 			}()
 
 			contextInfo := ContextInfo{
@@ -152,23 +170,43 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 				},
 			}
 
-			// fetch segment users
-			getUdsRes := new(GetUdsResponse)
-			if err = h.segmentHandler.GetUds(ctx, &GetUdsRequest{
-				ContextInfo: contextInfo,
-				SegmentID:   campaign.SegmentID,
-			}, getUdsRes); err != nil {
-				log.Ctx(ctx).Error().Msgf("get uds failed: %v, campaign_id: %v", err, campaign.GetID())
-				return err
+			var (
+				uds    = make([]*entity.Ud, 0)
+				cursor = ""
+			)
+			for {
+				var (
+					downloadUdsReq = &DownloadUdsRequest{
+						ContextInfo: contextInfo,
+						SegmentID:   campaign.SegmentID,
+						Pagination: &repo.Pagination{
+							Limit:  goutil.Uint32(DefaultMaxLimit),
+							Cursor: goutil.String(cursor),
+						},
+					}
+					downloadUdsRes = new(DownloadUdsResponse)
+				)
+
+				if err := h.segmentHandler.DownloadUds(ctx, downloadUdsReq, downloadUdsRes); err != nil {
+					updateCampaignStatus(entity.CampaignStatusFailed, campaign, fmt.Errorf("download uds failed: %v", err))
+					return err
+				}
+
+				cursor = downloadUdsRes.GetPagination().GetCursor()
+				uds = append(uds, downloadUdsRes.Uds...)
+
+				if cursor == "" {
+					break
+				}
 			}
 
 			// set campaign to Running, update the segment size
 			campaign.Update(&entity.Campaign{
-				SegmentSize: goutil.Uint64(uint64(len(getUdsRes.Uds))),
+				SegmentSize: goutil.Uint64(uint64(len(uds))),
 				Status:      entity.CampaignStatusRunning,
 			})
 			if err = h.campaignRepo.Update(ctx, campaign); err != nil {
-				log.Ctx(ctx).Error().Msgf("set campaign to running err: %v, campaign_id: %v", err, campaign.GetID())
+				updateCampaignStatus(entity.CampaignStatusFailed, campaign, fmt.Errorf("set campaign to running failed: %v", err))
 				return err
 			}
 
@@ -181,11 +219,13 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 			)
 			for _, campaignEmail := range campaignEmails {
 				// group emails
-				count := int(math.Ceil(float64(len(getUdsRes.Uds)) * float64(campaignEmail.GetRatio()) / float64(100)))
-				end := int(math.Min(float64(len(getUdsRes.Uds)), float64(pos+count)))
+				var (
+					count = int(math.Ceil(float64(len(uds)) * float64(campaignEmail.GetRatio()) / float64(100)))
+					end   = int(math.Min(float64(len(uds)), float64(pos+count)))
+				)
 
 				emailBucket := make([]string, 0)
-				for _, ud := range getUdsRes.Uds[pos:end] {
+				for _, ud := range uds[pos:end] {
 					emailBucket = append(emailBucket, ud.GetID())
 				}
 
@@ -193,7 +233,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 
 				pos += count
 
-				// fetch htmls
+				// fetch HTMLs
 				var (
 					getEmailReq = &GetEmailRequest{
 						ContextInfo: contextInfo,
@@ -202,14 +242,16 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 					getEmailRes = new(GetEmailResponse)
 				)
 				if err := h.emailHandler.GetEmail(ctx, getEmailReq, getEmailRes); err != nil {
-					log.Ctx(ctx).Error().Msgf("get email err: %v, campaign_email_id: %v", err, campaignEmail.GetID())
+					updateCampaignStatus(entity.CampaignStatusFailed, campaign,
+						fmt.Errorf("get email failed: %v, campaign_email_id: %v", err, campaignEmail.GetID()))
 					return err
 				}
 
 				var decodedHtml string
 				decodedHtml, err = goutil.Base64Decode(getEmailRes.Email.GetHtml())
 				if err != nil {
-					log.Ctx(ctx).Error().Msgf("decode email failed: %v, campaign_email_id: %v", err, campaignEmail.GetID())
+					updateCampaignStatus(entity.CampaignStatusFailed, campaign,
+						fmt.Errorf("decode email failed: %v, campaign_email_id: %v", err, campaignEmail.GetID()))
 					return err
 				}
 				htmls = append(htmls, decodedHtml)
@@ -241,7 +283,7 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 					sendSmtpEmail := &dep.SendSmtpEmail{
 						CampaignEmailID: campaignEmail.GetID(),
 						From: &dep.Sender{
-							Email: "mirrorcdp@gmail.com",
+							Email: "mirrorcdp@gmail.com", // TODO: Set to tenant's email
 						},
 						To:          to,
 						Subject:     campaignEmail.GetSubject(),
@@ -253,21 +295,32 @@ func (h *campaignHandler) RunCampaigns(ctx context.Context, _ *RunCampaignsReque
 						progress = count * 100 / campaign.GetSegmentSize()
 					}
 
-					// Send the email and handle errors
-					if err = h.emailService.SendEmail(ctx, sendSmtpEmail); err != nil {
-						log.Ctx(ctx).Error().Msgf("send email failed: %v, campaign_email_id: %v, batch_start: %d, batch_end: %d", err,
-							campaignEmail.GetID(), start, end)
-					} else {
-						campaign.Update(&entity.Campaign{
-							Progress: goutil.Uint64(progress),
-							Status:   entity.CampaignStatusRunning,
-						})
-						if err = h.campaignRepo.Update(ctx, campaign); err != nil {
-							log.Ctx(ctx).Error().Msgf("update campaign progress err: %v, campaign_id: %v, progress: %v", err,
-								campaign.GetID(), progress)
-						}
+					// Send emails
+					// Log error only, keep the campaign going
+					if err := h.emailService.SendEmail(ctx, sendSmtpEmail); err != nil {
+						updateCampaignStatus(entity.CampaignStatusRunning, campaign,
+							fmt.Errorf("send email failed: %v, campaign_email_id: %v", err, campaignEmail.GetID()))
+					}
+
+					// Update progress
+					// Log error only, keep the campaign going
+					campaign.Update(&entity.Campaign{
+						Progress: goutil.Uint64(progress),
+					})
+					if err := h.campaignRepo.Update(ctx, campaign); err != nil {
+						updateCampaignStatus(entity.CampaignStatusRunning, campaign,
+							fmt.Errorf("update campaign progress failed: %v, campaign_email_id: %v, progress: %v", err, campaignEmail.GetID(), progress))
 					}
 				}
+			}
+
+			// Send emails done
+			campaign.Update(&entity.Campaign{
+				Progress: goutil.Uint64(100),
+			})
+			if err := h.campaignRepo.Update(ctx, campaign); err != nil {
+				updateCampaignStatus(entity.CampaignStatusFailed, campaign, fmt.Errorf("set campaign to 100%% completion failed: %v", err))
+				return err
 			}
 
 			return nil
@@ -339,7 +392,7 @@ type CreateCampaignResponse struct {
 }
 
 var CreateCampaignValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo":   ContextInfoValidator,
+	"ContextInfo":   ContextInfoValidator(false, false),
 	"name":          ResourceNameValidator(false),
 	"campaign_desc": ResourceDescValidator(false),
 	"segment_id":    &validator.UInt64{},

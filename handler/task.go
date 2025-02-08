@@ -62,42 +62,35 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 	}
 
 	type taskStatus struct {
-		err  error
-		task *entity.Task
+		err    error
+		task   *entity.Task
+		status entity.TaskStatus
 	}
 
 	// track task status
-	statusChan := make(chan taskStatus, len(tasks))
+	var (
+		statusChan       = make(chan taskStatus, len(tasks))
+		updateTaskStatus = func(status entity.TaskStatus, task *entity.Task, err error) {
+			statusChan <- taskStatus{err: err, task: task, status: status}
+		}
+	)
 	g.Go(func() error {
-		var count int
 		for {
 			select {
 			case te := <-statusChan:
-				var (
-					task   = te.task
-					status = entity.TaskStatusSuccess
-				)
+				task := te.task
 				if te.err != nil {
-					status = entity.TaskStatusFailed
 					log.Ctx(ctx).Error().Msgf("[task ID %d] error encountered: %v", task.GetID(), te.err)
-				} else {
-					log.Ctx(ctx).Info().Msgf("[task ID %d]: task success!", task.GetID())
 				}
 
 				task.Update(&entity.Task{
-					Status: status,
+					Status: te.status,
 				})
 				if err = h.taskRepo.Update(ctx, task); err != nil {
-					log.Ctx(ctx).Error().Msgf("[task ID %d] set campaign status failed err: %v, status: %v", task.GetID(), err, status)
+					log.Ctx(ctx).Error().Msgf("[task ID %d] set campaign status failed err: %v, status: %v", task.GetID(), err, te.status)
 				}
 			}
-
-			count++
-			if count == len(tasks) {
-				break
-			}
 		}
-		return nil
 	})
 
 	// process tasks
@@ -118,30 +111,21 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 			// get tenant
 			tenant, err := h.tenantRepo.GetByID(ctx, task.GetTenantID())
 			if err != nil {
-				statusChan <- taskStatus{
-					err:  fmt.Errorf("get tenant failed: %v", err),
-					task: task,
-				}
+				updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("get tenant failed: %v", err))
 				return err
 			}
 
 			// get tag
 			tag, err := h.tagRepo.GetByID(ctx, tenant.GetID(), task.GetResourceID())
 			if err != nil {
-				statusChan <- taskStatus{
-					err:  fmt.Errorf("get tag failed: %v", err),
-					task: task,
-				}
+				updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("get tag failed: %v", err))
 				return err
 			}
 
 			// download file data
 			rows, err := h.fileRepo.DownloadFile(ctx, task.GetFileID())
 			if err != nil {
-				statusChan <- taskStatus{
-					err:  fmt.Errorf("get file %s failed: %v", fileID, err),
-					task: task,
-				}
+				updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("get file %s failed: %v", fileID, err))
 				return err
 			}
 
@@ -150,10 +134,7 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 				Status: entity.TaskStatusRunning,
 			})
 			if err := h.taskRepo.Update(ctx, task); err != nil {
-				statusChan <- taskStatus{
-					err:  fmt.Errorf("set task to running failed: %v", err),
-					task: task,
-				}
+				updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("set task to running failed: %v", err))
 				return err
 			}
 
@@ -164,19 +145,13 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 			)
 			for i, row := range rows {
 				if len(row) != 2 {
-					statusChan <- taskStatus{
-						err:  fmt.Errorf("invalid row: %v, file: %s", row, fileID),
-						task: task,
-					}
+					updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("invalid row: %v, file: %s", row, fileID))
 					return err
 				}
 
 				v, err := tag.FormatTagValue(row[1])
 				if err != nil {
-					statusChan <- taskStatus{
-						err:  fmt.Errorf("invalid tag value: %v, file: %s", rows[1], fileID),
-						task: task,
-					}
+					updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("invalid tag value: %v, file: %s", rows[1], fileID))
 					return err
 				}
 
@@ -199,74 +174,68 @@ func (h *taskHandler) RunFileUploadTasks(ctx context.Context, _ *RunFileUploadTa
 				}
 			}
 
-			subG := new(errgroup.Group)
-			subG.Go(func() error {
-				var (
-					count    uint64
-					batchNum int
-				)
+			// start to write
+			var (
+				count    uint64
+				batchNum int
+			)
 
-				ticker := time.NewTicker(2 * time.Second)
-				defer ticker.Stop()
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
 
-				for {
-					select {
-					case <-h.queryRepo.OnInsertSuccess():
-						count++
-					case insertErr := <-h.queryRepo.OnInsertFailure():
-						count++
-						return insertErr
-					case <-ticker.C:
-						if task.GetSize() > 0 {
-							progress := count * 100 / task.GetSize()
-							task.Update(&entity.Task{
-								ExtInfo: &entity.TaskExtInfo{
-									Progress: goutil.Uint64(progress),
-								},
-							})
-							// no need return err, let the next update to correct the error
-							if err := h.taskRepo.Update(ctx, task); err != nil {
-								log.Ctx(ctx).Error().Msgf("set task progress err: %v, task_id: %v", err, task.GetID())
-							}
-						}
-					default:
-					}
-
-					// batch upsert
-					if batchNum < len(batches) {
-						batch = batches[batchNum]
-
-						if err := h.queryRepo.BatchUpsert(ctx, tenant.GetName(), batch); err != nil {
-							return fmt.Errorf("batch upsert err: %v", err)
-						}
-
-						batchNum++
-					}
-
-					// full completion
-					if count == task.GetSize() {
+			for {
+				select {
+				case <-h.queryRepo.OnInsertSuccess():
+					count++
+				case insertErr := <-h.queryRepo.OnInsertFailure():
+					count++
+					return insertErr
+				case <-ticker.C:
+					if task.GetSize() > 0 {
+						progress := count * 100 / task.GetSize()
 						task.Update(&entity.Task{
 							ExtInfo: &entity.TaskExtInfo{
-								Progress: goutil.Uint64(100),
+								Progress: goutil.Uint64(progress),
 							},
 						})
+						// no need return err, let the next update to correct the error
 						if err := h.taskRepo.Update(ctx, task); err != nil {
-							return fmt.Errorf("set task to 100%% completion err: %v", err)
+							updateTaskStatus(entity.TaskStatusRunning, task, fmt.Errorf("set task progress err: %v", err))
 						}
-
-						return nil
 					}
+				default:
 				}
-			})
 
-			if err := subG.Wait(); err != nil {
-				statusChan <- taskStatus{err: err, task: task}
-				return err
+				// batch upsert
+				if batchNum < len(batches) {
+					batch = batches[batchNum]
+
+					if err := h.queryRepo.BatchUpsert(ctx, tenant.GetName(), batch); err != nil {
+						updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("batch upsert err: %v", err))
+						return err
+					}
+
+					batchNum++
+				}
+
+				// full completion
+				if count == task.GetSize() {
+					task.Update(&entity.Task{
+						Status: entity.TaskStatusSuccess,
+						ExtInfo: &entity.TaskExtInfo{
+							Progress: goutil.Uint64(100),
+						},
+					})
+					log.Ctx(ctx).Info().Msgf("task is success, task_id: %v", task.GetID())
+					if err := h.taskRepo.Update(ctx, task); err != nil {
+						updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("set task to 100%% completion err: %v", err))
+						return err
+					}
+
+					// done
+					return nil
+				}
 			}
-
-			statusChan <- taskStatus{err: nil, task: task}
-
-			return nil
 		})
 	}
 
@@ -301,7 +270,7 @@ type GetFileUploadTasksResponse struct {
 }
 
 var GetFileUploadTasksValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 	"resource_id": &validator.UInt64{
 		Optional: false,
 	},
@@ -371,7 +340,7 @@ type CreateFileUploadTaskResponse struct {
 }
 
 var CreateFileUploadTaskValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, false),
 	"FileUpload": FileUploadValidator(false, 5_000_000, []string{
 		"text/csv",
 		"text/plain",

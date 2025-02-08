@@ -56,7 +56,7 @@ type CreateEmailResponse struct {
 }
 
 var CreateEmailValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, false),
 	"name":        ResourceNameValidator(false),
 	"email_desc":  ResourceDescValidator(false),
 	"json":        &validator.String{},
@@ -101,7 +101,7 @@ type GetEmailResponse struct {
 }
 
 var GetEmailValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 	"email_id":    &validator.UInt64{},
 })
 
@@ -141,7 +141,7 @@ type GetEmailsResponse struct {
 }
 
 var GetEmailsValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 	"keyword": &validator.String{
 		Optional: true,
 	},

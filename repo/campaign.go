@@ -62,7 +62,7 @@ func (m *Campaign) GetID() uint64 {
 type CampaignRepo interface {
 	Create(ctx context.Context, campaign *entity.Campaign) (uint64, error)
 	GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Campaign, *Pagination, error)
-	GetPendingCampaigns(ctx context.Context, tenantID uint64, schedule uint64) ([]*entity.Campaign, error)
+	GetPendingCampaigns(ctx context.Context, schedule uint64) ([]*entity.Campaign, error)
 	GetByID(ctx context.Context, tenantID, campaignID uint64) (*entity.Campaign, error)
 	Update(ctx context.Context, tenant *entity.Campaign) error
 }
@@ -121,8 +121,8 @@ func (r *campaignRepo) Create(ctx context.Context, campaign *entity.Campaign) (u
 	return campaignModel.GetID(), nil
 }
 
-func (r *campaignRepo) GetPendingCampaigns(ctx context.Context, tenantID uint64, schedule uint64) ([]*entity.Campaign, error) {
-	campaigns, _, err := r.getMany(ctx, tenantID, []*Condition{
+func (r *campaignRepo) GetPendingCampaigns(ctx context.Context, schedule uint64) ([]*entity.Campaign, error) {
+	campaigns, _, err := r.getMany(ctx, 0, []*Condition{
 		{
 			Field:         "status",
 			Op:            OpEq,

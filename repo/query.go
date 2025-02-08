@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"cdp/config"
 	"cdp/entity"
+	"cdp/pkg/goutil"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"github.com/elastic/go-elasticsearch/v8/esutil"
 	"github.com/rs/zerolog/log"
 	"net/http"
@@ -20,6 +23,7 @@ type QueryRepo interface {
 	CreateStore(_ context.Context, tenantName string) error
 	BatchUpsert(ctx context.Context, tenantName string, udTagVals []*entity.UdTagVal) error
 	Count(ctx context.Context, tenantName string, query *entity.Query) (uint64, error)
+	Download(ctx context.Context, tenantName string, query *entity.Query, page *Pagination) ([]*entity.Ud, *Pagination, error)
 	OnInsertSuccess() chan struct{}
 	OnInsertFailure() chan error
 	Close(ctx context.Context) error
@@ -28,6 +32,7 @@ type QueryRepo interface {
 type queryRepo struct {
 	client          *elasticsearch.Client
 	bulkIndexer     esutil.BulkIndexer
+	scrollTimeout   time.Duration
 	onInsertSuccess chan struct{}
 	onInsertFailure chan error
 }
@@ -95,6 +100,7 @@ func NewQueryRepo(_ context.Context, cfg config.ElasticSearch) (QueryRepo, error
 		bulkIndexer:     indexer,
 		onInsertSuccess: make(chan struct{}, successChanSize),
 		onInsertFailure: make(chan error, failureChanSize),
+		scrollTimeout:   time.Duration(cfg.ScrollTimeoutSeconds) * time.Second,
 	}, nil
 }
 
@@ -119,12 +125,25 @@ func (r *queryRepo) CreateStore(ctx context.Context, tenantName string) error {
 		return fmt.Errorf("failed to marshal mapping: %w", err)
 	}
 
-	_, err = r.client.Indices.Create(
+	res, err := r.client.Indices.Create(
 		tenantName,
 		r.client.Indices.Create.WithBody(bytes.NewReader(mappingBody)),
 		r.client.Indices.Create.WithContext(ctx),
 	)
 	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_ = res.Body.Close()
+	}()
+
+	var createResp map[string]interface{}
+	if err := json.NewDecoder(res.Body).Decode(&createResp); err != nil {
+		return err
+	}
+
+	if err := r.extractElasticError(createResp); err != nil {
 		return err
 	}
 
@@ -142,7 +161,17 @@ func (r *queryRepo) OnInsertFailure() chan error {
 // BatchUpsert bulk indexer: https://github.com/elastic/go-elasticsearch/blob/main/_examples/bulk/indexer.go
 func (r *queryRepo) BatchUpsert(ctx context.Context, tenantName string, udTagVals []*entity.UdTagVal) error {
 	for _, udTagVal := range udTagVals {
-		docID := udTagVal.ToDocID()
+		if udTagVal == nil {
+			log.Ctx(ctx).Warn().Msg("nil udTagVal found in batch upsert")
+			continue
+		}
+
+		docID := udTagVal.GetUd().ToDocID()
+
+		if docID == "" {
+			log.Ctx(ctx).Warn().Msg("empty doc ID found in batch upsert")
+			continue
+		}
 
 		data, err := udTagVal.ToDoc()
 		if err != nil {
@@ -180,6 +209,94 @@ func (r *queryRepo) BatchUpsert(ctx context.Context, tenantName string, udTagVal
 	return nil
 }
 
+func (r *queryRepo) Download(ctx context.Context, tenantName string, query *entity.Query, page *Pagination) ([]*entity.Ud, *Pagination, error) {
+	var (
+		res *esapi.Response
+		err error
+	)
+	if page.GetCursor() != "" {
+		res, err = r.client.Scroll(
+			r.client.Scroll.WithScroll(r.scrollTimeout),
+			r.client.Scroll.WithScrollID(page.GetCursor()),
+			r.client.Scroll.WithContext(ctx),
+		)
+	} else {
+		queryBody := r.buildElasticQuery(query)
+		if queryBody == nil {
+			return nil, nil, nil
+		}
+
+		body, err := json.Marshal(map[string]interface{}{
+			"query":   queryBody,
+			"size":    page.GetLimit(),
+			"_source": false,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+
+		res, err = r.client.Search(
+			r.client.Search.WithIndex(tenantName),
+			r.client.Search.WithBody(bytes.NewReader(body)),
+			r.client.Search.WithScroll(r.scrollTimeout),
+			r.client.Search.WithContext(context.Background()),
+		)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() {
+		_ = res.Body.Close()
+	}()
+
+	var searchResp map[string]interface{}
+	if err := json.NewDecoder(res.Body).Decode(&searchResp); err != nil {
+		return nil, nil, err
+	}
+
+	if err := r.extractElasticError(searchResp); err != nil {
+		return nil, nil, err
+	}
+
+	hits, ok := searchResp["hits"].(map[string]interface{})["hits"].([]interface{})
+	if !ok {
+		return nil, nil, errors.New("no hits found in response")
+	}
+
+	uds := make([]*entity.Ud, 0)
+	for _, hit := range hits {
+		if doc, ok := hit.(map[string]interface{}); ok {
+			if id, exists := doc["_id"].(string); exists {
+				ud, err := entity.ToUd(id)
+				if err != nil {
+					return nil, nil, err
+				}
+				uds = append(uds, ud)
+			}
+		}
+	}
+
+	newPage := &Pagination{
+		Limit:  page.Limit,
+		Cursor: goutil.String(""),
+	}
+	if sid, ok := searchResp["_scroll_id"].(string); ok {
+		if uint32(len(uds)) >= page.GetLimit() {
+			newPage.Cursor = goutil.String(sid)
+		} else {
+			res, err := r.client.ClearScroll(
+				r.client.ClearScroll.WithScrollID(sid),
+				r.client.ClearScroll.WithContext(ctx),
+			)
+			if err != nil || res.IsError() {
+				log.Ctx(ctx).Error().Msgf("fail to clear scroll id %s: %v", sid, err)
+			}
+		}
+	}
+
+	return uds, newPage, nil
+}
+
 func (r *queryRepo) Count(ctx context.Context, tenantName string, query *entity.Query) (uint64, error) {
 	queryBody := r.buildElasticQuery(query)
 	if queryBody == nil {
@@ -208,11 +325,38 @@ func (r *queryRepo) Count(ctx context.Context, tenantName string, query *entity.
 		return 0, err
 	}
 
+	if err := r.extractElasticError(countResp); err != nil {
+		return 0, err
+	}
+
 	if count, ok := countResp["count"].(float64); ok {
 		return uint64(count), nil
 	}
 
 	return 0, fmt.Errorf("unexpected response format")
+}
+
+func (r *queryRepo) extractElasticError(resp map[string]interface{}) error {
+	if errorResp, ok := resp["error"]; ok {
+		if m, ok := errorResp.(map[string]interface{}); ok {
+			var status int
+			if s, ok := m["status"].(int); ok {
+				status = s
+			}
+
+			var errType string
+			if s, ok := m["type"].(string); ok {
+				errType = s
+			}
+
+			var reason string
+			if s, ok := m["reason"].(string); ok {
+				reason = s
+			}
+			return fmt.Errorf("elasticsearch error: status=%d, type=%s, reason=%s", status, errType, reason)
+		}
+	}
+	return nil
 }
 
 func (r *queryRepo) buildElasticQuery(query *entity.Query) map[string]interface{} {

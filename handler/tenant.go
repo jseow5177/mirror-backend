@@ -147,7 +147,7 @@ type GetTenantResponse struct {
 }
 
 var GetTenantValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 })
 
 func (h *tenantHandler) GetTenant(_ context.Context, req *GetTenantRequest, res *GetTenantResponse) error {

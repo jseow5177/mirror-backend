@@ -16,7 +16,7 @@ import (
 type SegmentHandler interface {
 	CreateSegment(ctx context.Context, req *CreateSegmentRequest, res *CreateSegmentResponse) error
 	CountUd(ctx context.Context, req *CountUdRequest, res *CountUdResponse) error
-	GetUds(ctx context.Context, req *GetUdsRequest, res *GetUdsResponse) error
+	DownloadUds(ctx context.Context, req *DownloadUdsRequest, res *DownloadUdsResponse) error
 	GetSegment(ctx context.Context, req *GetSegmentRequest, res *GetSegmentResponse) error
 	GetSegments(ctx context.Context, req *GetSegmentsRequest, res *GetSegmentsResponse) error
 	PreviewUd(ctx context.Context, req *PreviewUdRequest, res *PreviewUdResponse) error
@@ -48,7 +48,7 @@ type CountSegmentsResponse struct {
 }
 
 var CountSegmentsValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 })
 
 func (h *segmentHandler) CountSegments(ctx context.Context, req *CountSegmentsRequest, res *CountSegmentsResponse) error {
@@ -84,7 +84,7 @@ type GetSegmentResponse struct {
 }
 
 var GetSegmentValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 	"segment_id":  &validator.UInt64{},
 })
 
@@ -124,7 +124,7 @@ type GetSegmentsResponse struct {
 }
 
 var GetSegmentsValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 	"keyword": &validator.String{
 		Optional: true,
 	},
@@ -182,7 +182,7 @@ type CreateSegmentResponse struct {
 }
 
 var CreateSegmentValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo":  ContextInfoValidator,
+	"ContextInfo":  ContextInfoValidator(false, false),
 	"name":         ResourceNameValidator(false),
 	"segment_desc": ResourceDescValidator(false),
 })
@@ -221,50 +221,66 @@ func (h *segmentHandler) CreateSegment(ctx context.Context, req *CreateSegmentRe
 	return nil
 }
 
-type GetUdsRequest struct {
+type DownloadUdsRequest struct {
 	ContextInfo
 
-	SegmentID *uint64 `json:"segment_id,omitempty"`
+	SegmentID  *uint64          `json:"segment_id,omitempty"`
+	Pagination *repo.Pagination `json:"pagination,omitempty"`
 }
 
-func (req *GetUdsRequest) GetSegmentID() uint64 {
+func (req *DownloadUdsRequest) GetSegmentID() uint64 {
 	if req != nil && req.SegmentID != nil {
 		return *req.SegmentID
 	}
 	return 0
 }
 
-type GetUdsResponse struct {
-	Uds []*entity.Ud `json:"uds"`
+type DownloadUdsResponse struct {
+	Uds        []*entity.Ud     `json:"uds"`
+	Pagination *repo.Pagination `json:"pagination,omitempty"`
 }
 
-var GetUdsValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+func (res *DownloadUdsResponse) GetPagination() *repo.Pagination {
+	if res != nil && res.Pagination != nil {
+		return res.Pagination
+	}
+	return nil
+}
+
+var DownloadUdsValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator(false, true),
 	"segment_id": &validator.UInt64{
 		Optional: false,
 	},
+	"pagination": PaginationValidator(),
 })
 
-func (h *segmentHandler) GetUds(ctx context.Context, req *GetUdsRequest, res *GetUdsResponse) error {
-	if err := GetUdsValidator.Validate(req); err != nil {
+func (h *segmentHandler) DownloadUds(ctx context.Context, req *DownloadUdsRequest, res *DownloadUdsResponse) error {
+	if err := DownloadUdsValidator.Validate(req); err != nil {
 		return errutil.ValidationError(err)
 	}
 
-	_, err := h.segmentRepo.GetByID(ctx, req.GetTenantID(), req.GetSegmentID())
+	segment, err := h.segmentRepo.GetByID(ctx, req.GetTenantID(), req.GetSegmentID())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get segment failed: %v", err)
 		return err
 	}
 
-	uds := make([]*entity.Ud, 0)
-	for _, email := range h.cfg.TestEmails {
-		uds = append(uds, &entity.Ud{
-			ID:     goutil.String(email),
-			IDType: entity.IDTypeEmail,
-		})
+	if req.Pagination == nil {
+		req.Pagination = &repo.Pagination{
+			Limit:  goutil.Uint32(DefaultMaxLimit),
+			Cursor: goutil.String(""),
+		}
+	}
+
+	uds, newPage, err := h.queryRepo.Download(ctx, req.GetTenantName(), segment.GetCriteria(), req.Pagination)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("download uds failed: %v", err)
+		return err
 	}
 
 	res.Uds = uds
+	res.Pagination = newPage
 
 	return nil
 }
@@ -287,7 +303,7 @@ type CountUdResponse struct {
 }
 
 var CountUdValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 	"segment_id": &validator.UInt64{
 		Optional: false,
 	},
@@ -322,11 +338,11 @@ type PreviewUdRequest struct {
 }
 
 type PreviewUdResponse struct {
-	Count *uint64 `json:"count,omitempty"`
+	Count *int64 `json:"count,omitempty"`
 }
 
 var PreviewUdValidator = validator.MustForm(map[string]validator.Validator{
-	"ContextInfo": ContextInfoValidator,
+	"ContextInfo": ContextInfoValidator(false, true),
 })
 
 func (h *segmentHandler) PreviewUd(ctx context.Context, req *PreviewUdRequest, res *PreviewUdResponse) error {
@@ -336,8 +352,8 @@ func (h *segmentHandler) PreviewUd(ctx context.Context, req *PreviewUdRequest, r
 
 	v := NewQueryValidator(req.GetTenantID(), h.tagRepo, false)
 	if err := v.Validate(ctx, req.Criteria); err != nil {
-		log.Ctx(ctx).Error().Msgf("validate segment failed: %v", err)
-		return err
+		res.Count = goutil.Int64(-1)
+		return nil
 	}
 
 	count, err := h.queryRepo.Count(ctx, req.GetTenantName(), req.Criteria)
@@ -346,7 +362,7 @@ func (h *segmentHandler) PreviewUd(ctx context.Context, req *PreviewUdRequest, r
 		return err
 	}
 
-	res.Count = goutil.Uint64(count)
+	res.Count = goutil.Int64(int64(count))
 
 	return nil
 }

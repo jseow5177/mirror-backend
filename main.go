@@ -450,6 +450,22 @@ func (s *server) registerRoutes() http.Handler {
 		},
 	})
 
+	// download_uds
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathDownloadUds,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.DownloadUdsRequest),
+			Res: new(handler.DownloadUdsResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.segmentHandler.DownloadUds(ctx, req.(*handler.DownloadUdsRequest), res.(*handler.DownloadUdsResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
+	})
+
 	// preview_ud
 	r.RegisterHttpRoute(&router.HttpRoute{
 		Path:   config.PathPreviewUd,

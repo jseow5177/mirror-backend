@@ -1,9 +1,14 @@
 package entity
 
 import (
+	"cdp/pkg/goutil"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 )
+
+const docIDSeparator = ":"
 
 type IDType uint32
 
@@ -35,6 +40,35 @@ func (e *Ud) GetIDType() IDType {
 	return IDTypeUnknown
 }
 
+func (e *Ud) ToDocID() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s%s%d", e.GetID(), docIDSeparator, e.GetIDType())
+}
+
+func ToUd(docID string) (*Ud, error) {
+	parts := strings.Split(docID, docIDSeparator)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid doc id format: %s", docID)
+	}
+
+	i, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid id type, docID: %s, err: %v", docID, err)
+	}
+
+	idType := IDType(i)
+	if idType == IDTypeUnknown {
+		return nil, fmt.Errorf("id type should not be Unknown, docID: %s, err: %v", docID, err)
+	}
+
+	return &Ud{
+		ID:     goutil.String(parts[0]),
+		IDType: idType,
+	}, nil
+}
+
 type TagVal struct {
 	TagID  *uint64     `json:"tag_id,omitempty"`
 	TagVal interface{} `json:"tag_val,omitempty"`
@@ -59,11 +93,11 @@ type UdTagVal struct {
 	TagVals []*TagVal `json:"tag_vals,omitempty"`
 }
 
-func (e *UdTagVal) ToDocID() string {
-	if e == nil || e.Ud == nil {
-		return ""
+func (e *UdTagVal) GetUd() *Ud {
+	if e == nil {
+		return nil
 	}
-	return fmt.Sprintf("%s:%d", e.Ud.GetID(), e.Ud.GetIDType())
+	return e.Ud
 }
 
 func (e *UdTagVal) ToDoc() (string, error) {
