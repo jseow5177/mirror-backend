@@ -1,6 +1,6 @@
-CREATE DATABASE IF NOT EXISTS metadata_db;
+CREATE DATABASE IF NOT EXISTS mirrorcdp_db;
 
-USE metadata_db;
+USE mirrorcdp_db;
 
 CREATE TABLE IF NOT EXISTS tag_tab (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
