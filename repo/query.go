@@ -10,9 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
-	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/elastic/go-elasticsearch/v8/esapi"
-	"github.com/elastic/go-elasticsearch/v8/esutil"
+	"github.com/elastic/go-elasticsearch/v7" // TODO: Using v7.11.0 to be compatible with Bonsai ES
+	"github.com/elastic/go-elasticsearch/v7/esapi"
+	"github.com/elastic/go-elasticsearch/v7/esutil"
 	"github.com/rs/zerolog/log"
 	"net/http"
 	"strings"
