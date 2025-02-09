@@ -9,7 +9,7 @@ COPY . ./
 RUN chmod +x scripts/build.sh
 
 # Run the build script
-RUN ./scripts/build.sh
+RUN /app/scripts/build.sh
 
 # Create a minimal runtime image
 FROM alpine:latest
