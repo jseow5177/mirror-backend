@@ -37,10 +37,6 @@ const (
 )
 
 const (
-	DefaultPort   = 9090
+	DefaultPort   = 8080
 	LogLevelDebug = "DEBUG"
-)
-
-var (
-	EmptyJson = []byte("{}")
 )
