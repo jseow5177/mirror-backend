@@ -2,14 +2,11 @@ FROM golang:1.22.7-alpine AS builder
 
 WORKDIR /app
 
-# Copy the Go source code
+# Copy all files
 COPY . ./
 
-# Ensure build script is executable
-RUN chmod +x scripts/build.sh
-
-# Run the build script
-RUN /app/scripts/build.sh
+# Ensure build script has execution permissions
+RUN chmod +x scripts/build.sh && /bin/sh scripts/build.sh
 
 # Create a minimal runtime image
 FROM alpine:latest
