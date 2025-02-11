@@ -41,9 +41,10 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 	ctx = context.WithoutCancel(ctx)
 
 	var (
-		g  = new(errgroup.Group)
-		c  = 10
-		ch = make(chan struct{}, c)
+		taskG   = new(errgroup.Group)
+		statusG = new(errgroup.Group)
+		c       = 10
+		ch      = make(chan struct{}, c)
 	)
 
 	// get tag resource only
@@ -64,11 +65,12 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 	// track task status
 	var (
 		statusChan       = make(chan taskStatus, len(tasks))
+		doneChan         = make(chan struct{})
 		updateTaskStatus = func(status entity.TaskStatus, task *entity.Task, err error) {
 			statusChan <- taskStatus{err: err, task: task, status: status}
 		}
 	)
-	g.Go(func() error {
+	statusG.Go(func() error {
 		for {
 			select {
 			case te := <-statusChan:
@@ -83,6 +85,8 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 				if err = h.taskRepo.Update(ctx, task); err != nil {
 					log.Ctx(ctx).Error().Msgf("[task ID %d] set campaign status failed err: %v, status: %v", task.GetID(), err, te.status)
 				}
+			case <-doneChan:
+				return nil
 			}
 		}
 	})
@@ -94,7 +98,7 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 		}
 
 		task := task
-		g.Go(func() error {
+		taskG.Go(func() error {
 			// release go routine
 			defer func() {
 				<-ch
@@ -174,8 +178,14 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 				batchNum int
 			)
 
-			ticker := time.NewTicker(2 * time.Second)
-			defer ticker.Stop()
+			var (
+				progressTicker   = time.NewTicker(2 * time.Second)
+				completionTicker = time.NewTicker(5 * time.Second)
+			)
+			defer func() {
+				progressTicker.Stop()
+				completionTicker.Stop()
+			}()
 
 			for {
 				select {
@@ -183,8 +193,11 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 					count++
 				case insertErr := <-h.queryRepo.OnInsertFailure():
 					count++
-					return insertErr
-				case <-ticker.C:
+					if insertErr != nil {
+						updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("encounter batch insert err: %v", insertErr))
+						return insertErr
+					}
+				case <-progressTicker.C:
 					if task.GetSize() > 0 {
 						progress := count * 100 / task.GetSize()
 						task.Update(&entity.Task{
@@ -196,6 +209,25 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 						if err := h.taskRepo.Update(ctx, task); err != nil {
 							updateTaskStatus(entity.TaskStatusRunning, task, fmt.Errorf("set task progress err: %v", err))
 						}
+					}
+				case <-completionTicker.C:
+					// full completion
+					if count == task.GetSize() {
+						log.Ctx(ctx).Info().Msgf("task is success, task_id: %v", task.GetID())
+
+						task.Update(&entity.Task{
+							Status: entity.TaskStatusSuccess,
+							ExtInfo: &entity.TaskExtInfo{
+								Progress: goutil.Uint64(100),
+							},
+						})
+						if err := h.taskRepo.Update(ctx, task); err != nil {
+							updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("set task to 100%% completion err: %v", err))
+							return err
+						}
+
+						// done, exit go routine
+						return nil
 					}
 				default:
 				}
@@ -211,29 +243,17 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 
 					batchNum++
 				}
-
-				// full completion
-				if count == task.GetSize() {
-					task.Update(&entity.Task{
-						Status: entity.TaskStatusSuccess,
-						ExtInfo: &entity.TaskExtInfo{
-							Progress: goutil.Uint64(100),
-						},
-					})
-					log.Ctx(ctx).Info().Msgf("task is success, task_id: %v", task.GetID())
-					if err := h.taskRepo.Update(ctx, task); err != nil {
-						updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("set task to 100%% completion err: %v", err))
-						return err
-					}
-
-					// done
-					return nil
-				}
 			}
 		})
 	}
 
-	return nil
+	taskErr := taskG.Wait()
+
+	doneChan <- struct{}{}
+
+	_ = statusG.Wait()
+
+	return taskErr
 }
 
 func (h *RunFileUploadTask) CleanUp(_ context.Context) error {
