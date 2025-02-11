@@ -16,7 +16,7 @@ import (
 func main() {
 	var (
 		opt = config.NewOptions()
-		ctx = logutil.InitZeroLog(context.Background(), "DEBUG")
+		ctx = logutil.InitZeroLog(context.Background(), opt.LogLevel)
 	)
 
 	cfg := config.NewConfig()
