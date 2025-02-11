@@ -113,7 +113,7 @@ func main() {
 	jobs := map[string]service.Job{
 		"hello-world":           hello_world.New(),
 		"run-file-upload-tasks": run_file_upload_tasks.New(taskRepo, fileRepo, queryRepo, tenantRepo, tagRepo),
-		"run-campaigns":         run_campaigns.New(cfg, campaignRepo, emailService, segmentHandler, emailHandler),
+		"run-campaigns":         run_campaigns.New(cfg, campaignRepo, emailService, segmentHandler, emailHandler, tenantRepo),
 	}
 
 	if len(os.Args) < 2 {

@@ -22,16 +22,18 @@ type RunCampaigns struct {
 	emailService   dep.EmailService
 	segmentHandler handler.SegmentHandler
 	emailHandler   handler.EmailHandler
+	tenantRepo     repo.TenantRepo
 }
 
 func New(cfg *config.Config, campaignRepo repo.CampaignRepo, emailService dep.EmailService,
-	segmentHandler handler.SegmentHandler, emailHandler handler.EmailHandler) service.Job {
+	segmentHandler handler.SegmentHandler, emailHandler handler.EmailHandler, tenantRepo repo.TenantRepo) service.Job {
 	return &RunCampaigns{
 		cfg:            cfg,
 		campaignRepo:   campaignRepo,
 		emailService:   emailService,
 		segmentHandler: segmentHandler,
 		emailHandler:   emailHandler,
+		tenantRepo:     tenantRepo,
 	}
 }
 
@@ -103,10 +105,14 @@ func (h *RunCampaigns) Run(ctx context.Context) error {
 				<-ch
 			}()
 
+			tenant, err := h.tenantRepo.GetByID(ctx, campaign.GetTenantID())
+			if err != nil {
+				updateCampaignStatus(entity.CampaignStatusFailed, campaign, fmt.Errorf("get tenant failed: %v", err))
+				return err
+			}
+
 			contextInfo := handler.ContextInfo{
-				Tenant: &entity.Tenant{
-					ID: campaign.TenantID,
-				},
+				Tenant: tenant,
 			}
 
 			var (

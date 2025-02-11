@@ -19,6 +19,10 @@ import (
 	"time"
 )
 
+var (
+	errEmptyTenantName = errors.New("empty tenant name")
+)
+
 type QueryRepo interface {
 	CreateStore(_ context.Context, tenantName string) error
 	BatchUpsert(ctx context.Context, tenantName string, udTagVals []*entity.UdTagVal) error
@@ -105,6 +109,10 @@ func NewQueryRepo(_ context.Context, cfg config.ElasticSearch) (QueryRepo, error
 }
 
 func (r *queryRepo) CreateStore(ctx context.Context, tenantName string) error {
+	if tenantName == "" {
+		return errEmptyTenantName
+	}
+
 	mapping := map[string]interface{}{
 		"mappings": map[string]interface{}{
 			"dynamic_templates": []map[string]interface{}{
@@ -160,6 +168,10 @@ func (r *queryRepo) OnInsertFailure() chan error {
 
 // BatchUpsert bulk indexer: https://github.com/elastic/go-elasticsearch/blob/main/_examples/bulk/indexer.go
 func (r *queryRepo) BatchUpsert(ctx context.Context, tenantName string, udTagVals []*entity.UdTagVal) error {
+	if tenantName == "" {
+		return errEmptyTenantName
+	}
+
 	for _, udTagVal := range udTagVals {
 		if udTagVal == nil {
 			log.Ctx(ctx).Warn().Msg("nil udTagVal found in batch upsert")
@@ -210,6 +222,10 @@ func (r *queryRepo) BatchUpsert(ctx context.Context, tenantName string, udTagVal
 }
 
 func (r *queryRepo) Download(ctx context.Context, tenantName string, query *entity.Query, page *Pagination) ([]*entity.Ud, *Pagination, error) {
+	if tenantName == "" {
+		return nil, nil, errEmptyTenantName
+	}
+
 	var (
 		res *esapi.Response
 		err error
