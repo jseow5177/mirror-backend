@@ -53,6 +53,8 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 		return err
 	}
 
+	log.Ctx(ctx).Info().Msgf("number of tasks to be processed: %d", len(tasks))
+
 	type taskStatus struct {
 		err    error
 		task   *entity.Task
