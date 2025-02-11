@@ -16,7 +16,7 @@ WORKDIR /app
 
 # Copy the built binary from the builder stage
 COPY --from=builder /app/bin/mirror-backend .
-COPY --from=builder /app/bin/mirror-backend-job .
+COPY --from=builder /app/bin/mirror-job .
 
 # Expose the application port
 EXPOSE 8080
