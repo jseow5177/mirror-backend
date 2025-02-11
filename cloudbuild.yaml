@@ -1,0 +1,17 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'asia-southeast1-docker.pkg.dev/mirror-cdp/mirror-job/mirror-job:latest'
+      - '-f'
+      - 'job.Dockerfile'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'asia-southeast1-docker.pkg.dev/mirror-cdp/mirror-job/mirror-job:latest'
+
+images:
+  - 'asia-southeast1-docker.pkg.dev/mirror-cdp/mirror-job/mirror-job:latest'
