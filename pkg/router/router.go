@@ -20,6 +20,10 @@ const (
 	appBasePath = "/api/v1"
 )
 
+func getAppPath(path string) string {
+	return fmt.Sprintf("%s%s", appBasePath, path)
+}
+
 type FileUpload interface {
 	SetFileMeta(m *entity.FileMeta)
 }
@@ -71,7 +75,7 @@ func (r *HttpRouter) RegisterHttpRoute(hr *HttpRoute) {
 		}
 	}
 
-	r.Methods(hr.Method).Path(fmt.Sprintf("%s%s", appBasePath, hr.Path)).Handler(chain)
+	r.Methods(hr.Method).Path(getAppPath(hr.Path)).Handler(chain)
 }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

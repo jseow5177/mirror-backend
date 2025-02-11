@@ -239,7 +239,7 @@ func (r *queryRepo) Download(ctx context.Context, tenantName string, query *enti
 			r.client.Search.WithIndex(tenantName),
 			r.client.Search.WithBody(bytes.NewReader(body)),
 			r.client.Search.WithScroll(r.scrollTimeout),
-			r.client.Search.WithContext(context.Background()),
+			r.client.Search.WithContext(ctx),
 		)
 	}
 	if err != nil {

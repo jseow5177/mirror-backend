@@ -1,6 +1,7 @@
 package router
 
 import (
+	"cdp/config"
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
@@ -8,9 +9,23 @@ import (
 	"cdp/repo"
 	"context"
 	"errors"
+	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog/log"
+	"math/rand"
 	"net/http"
+	"time"
 )
+
+type userTenantCache struct {
+	user   *entity.User
+	tenant *entity.Tenant
+}
+
+var c *cache.Cache
+
+func init() {
+	c = cache.New(30*time.Minute, 15*time.Minute)
+}
 
 type ContextInfo interface {
 	SetUser(user *entity.User)
@@ -55,36 +70,58 @@ func (m *sessionMiddleware) Handle(next http.Handler) http.Handler {
 			return
 		}
 
-		decodedToken, err := goutil.Base64Decode(token)
-		if err != nil {
-			log.Ctx(ctx).Error().Msgf("decode token error, err: %v", err)
-			m.returnErr(w)
-			return
+		var utc *userTenantCache
+		if c != nil {
+			v, ok := c.Get(token)
+			if ok {
+				utc = v.(*userTenantCache)
+			}
 		}
 
-		session, err := m.sessionRepo.GetByTokenHash(ctx, goutil.Sha256(decodedToken))
-		if err != nil {
-			log.Ctx(ctx).Error().Msgf("get session error, err: %v", err)
-			m.returnErr(w)
-			return
+		if utc == nil {
+			decodedToken, err := goutil.Base64Decode(token)
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("decode token error, err: %v", err)
+				m.returnErr(w)
+				return
+			}
+
+			session, err := m.sessionRepo.GetByTokenHash(ctx, goutil.Sha256(decodedToken))
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("get session error, err: %v", err)
+				m.returnErr(w)
+				return
+			}
+
+			user, err := m.userRepo.GetByID(ctx, session.GetUserID())
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("get user error, err: %v, userID: %v", err, session.GetUserID())
+				m.returnErr(w)
+				return
+			}
+
+			tenant, err := m.tenantRepo.GetByID(ctx, user.GetTenantID())
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("get tenant error, err: %v, tenantID: %v", err, user.GetTenantID())
+				m.returnErr(w)
+				return
+			}
+
+			utc = &userTenantCache{
+				user:   user,
+				tenant: tenant,
+			}
+
+			if r.URL.String() == getAppPath(config.PathLogOut) {
+				c.Delete(token)
+			} else {
+				exp := time.Duration(rand.Intn(10))*time.Minute + 30*time.Minute
+				c.Set(token, utc, exp)
+			}
 		}
 
-		user, err := m.userRepo.GetByID(ctx, session.GetUserID())
-		if err != nil {
-			log.Ctx(ctx).Error().Msgf("get user error, err: %v, userID: %v", err, session.GetUserID())
-			m.returnErr(w)
-			return
-		}
-
-		tenant, err := m.tenantRepo.GetByID(ctx, user.GetTenantID())
-		if err != nil {
-			log.Ctx(ctx).Error().Msgf("get tenant error, err: %v, tenantID: %v", err, user.GetTenantID())
-			m.returnErr(w)
-			return
-		}
-
-		ctx = context.WithValue(ctx, userKey, user)
-		ctx = context.WithValue(ctx, tenantKey, tenant)
+		ctx = context.WithValue(ctx, userKey, utc.user)
+		ctx = context.WithValue(ctx, tenantKey, utc.tenant)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

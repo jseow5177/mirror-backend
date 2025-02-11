@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 const (
 	PathHealthCheck          = "/"
 	PathCreateTag            = "/create_tag"
@@ -17,7 +19,6 @@ const (
 	PathGetEmails            = "/get_emails"
 	PathGetEmail             = "/get_email"
 	PathCreateCampaign       = "/create_campaign"
-	PathRunCampaigns         = "/run_campaigns"
 	PathOnEmailAction        = "/on_email_action"
 	PathGetCampaigns         = "/get_campaigns"
 	PathGetCampaign          = "/get_campaign"
@@ -39,3 +40,5 @@ const (
 	DefaultPort   = 8080
 	LogLevelDebug = "DEBUG"
 )
+
+const ThreeMonths = 24 * 30 * 3 * time.Hour

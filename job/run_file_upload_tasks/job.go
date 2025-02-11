@@ -38,8 +38,6 @@ func (h *RunFileUploadTask) Init(_ context.Context) error {
 }
 
 func (h *RunFileUploadTask) Run(ctx context.Context) error {
-	ctx = context.WithoutCancel(ctx)
-
 	var (
 		taskG   = new(errgroup.Group)
 		statusG = new(errgroup.Group)
@@ -64,7 +62,7 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 
 	// track task status
 	var (
-		statusChan       = make(chan taskStatus, len(tasks))
+		statusChan       = make(chan taskStatus, len(tasks)*100)
 		doneChan         = make(chan struct{})
 		updateTaskStatus = func(status entity.TaskStatus, task *entity.Task, err error) {
 			statusChan <- taskStatus{err: err, task: task, status: status}

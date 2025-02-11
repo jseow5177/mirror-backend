@@ -526,19 +526,6 @@ func (s *server) registerRoutes() http.Handler {
 		},
 	})
 
-	// run_campaigns
-	r.RegisterHttpRoute(&router.HttpRoute{
-		Path:   config.PathRunCampaigns,
-		Method: http.MethodPost,
-		Handler: router.Handler{
-			Req: new(handler.RunCampaignsRequest),
-			Res: new(handler.RunCampaignsResponse),
-			HandleFunc: func(ctx context.Context, req, res interface{}) error {
-				return s.campaignHandler.RunCampaigns(ctx, req.(*handler.RunCampaignsRequest), res.(*handler.RunCampaignsResponse))
-			},
-		},
-	})
-
 	// create_file_upload_task
 	r.RegisterHttpRoute(&router.HttpRoute{
 		Path:   config.PathCreateFileUploadTask,

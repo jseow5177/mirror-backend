@@ -45,6 +45,13 @@ func (e *Campaign) GetTenantID() uint64 {
 	return 0
 }
 
+func (e *Campaign) GetSegmentID() uint64 {
+	if e != nil && e.SegmentID != nil {
+		return *e.SegmentID
+	}
+	return 0
+}
+
 func (e *Campaign) GetStatus() CampaignStatus {
 	if e != nil {
 		return e.Status

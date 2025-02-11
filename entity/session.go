@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"cdp/config"
 	"cdp/pkg/goutil"
 	"time"
 )
@@ -48,7 +49,7 @@ func (e *Session) GetToken() string {
 
 func NewSession(userID uint64) (*Session, error) {
 	now := time.Now()
-	expire := now.Add(24 * 30 * 3 * time.Hour) // TODO: 3 months
+	expire := now.Add(config.ThreeMonths) // TODO: 3 months
 
 	token, err := goutil.GenerateRandomString(sessionByteLength)
 	if err != nil {

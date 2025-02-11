@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"cdp/config"
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"context"
@@ -98,7 +99,7 @@ func (r *sessionRepo) maybeAddExpireFilter(conditions []*Condition, filterExpire
 	if filterExpire {
 		return append(conditions, &Condition{
 			Field: "expire_time",
-			Value: time.Now().Add(24 * 30 * 3 * time.Hour).Unix(), // TODO
+			Value: time.Now().Add(config.ThreeMonths).Unix(),
 			Op:    OpLte,
 		})
 	}

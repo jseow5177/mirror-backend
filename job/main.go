@@ -2,13 +2,15 @@ package main
 
 import (
 	"cdp/config"
+	"cdp/dep"
+	"cdp/handler"
 	"cdp/job/hello_world"
+	"cdp/job/run_campaigns"
 	"cdp/job/run_file_upload_tasks"
 	"cdp/pkg/logutil"
 	"cdp/pkg/service"
 	"cdp/repo"
 	"context"
-	"fmt"
 	"github.com/rs/zerolog/log"
 	"os"
 )
@@ -70,6 +72,20 @@ func main() {
 		}
 	}()
 
+	emailService, err := dep.NewEmailService(ctx, cfg.SMTP)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("init email service failed, err: %v", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err != nil && emailService != nil {
+			if err := emailService.Close(ctx); err != nil {
+				log.Ctx(ctx).Error().Msgf("close email service failed, err: %v", err)
+				return
+			}
+		}
+	}()
+
 	// tag repo
 	tagRepo := repo.NewTagRepo(ctx, baseRepo)
 
@@ -79,13 +95,29 @@ func main() {
 	// tenant repo
 	tenantRepo := repo.NewTenantRepo(ctx, baseRepo)
 
+	// campaign repo
+	campaignRepo := repo.NewCampaignRepo(ctx, baseRepo)
+
+	// segment repo
+	segmentRepo := repo.NewSegmentRepo(ctx, baseRepo)
+
+	// email repo
+	emailRepo := repo.NewEmailRepo(ctx, baseRepo)
+
+	// segment handler
+	segmentHandler := handler.NewSegmentHandler(cfg, tagRepo, segmentRepo, queryRepo)
+
+	// email handler
+	emailHandler := handler.NewEmailHandler(emailRepo)
+
 	jobs := map[string]service.Job{
 		"hello-world":           hello_world.New(),
 		"run-file-upload-tasks": run_file_upload_tasks.New(taskRepo, fileRepo, queryRepo, tenantRepo, tagRepo),
+		"run-campaigns":         run_campaigns.New(cfg, campaignRepo, emailService, segmentHandler, emailHandler),
 	}
 
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: go run main.go <job_name>")
+		log.Ctx(ctx).Error().Msg("Usage: go run main.go <job_name>")
 		os.Exit(1)
 	}
 
@@ -109,6 +141,30 @@ func main() {
 	if err := job.CleanUp(ctx); err != nil {
 		log.Ctx(ctx).Error().Msgf("cleanup job err: %v", err)
 		os.Exit(1)
+	}
+
+	if baseRepo != nil {
+		if err := baseRepo.Close(ctx); err != nil {
+			log.Ctx(ctx).Error().Msgf("close base repo failed, err: %v", err)
+		}
+	}
+
+	if fileRepo != nil {
+		if err := fileRepo.Close(ctx); err != nil {
+			log.Ctx(ctx).Error().Msgf("close entity file repo failed, err: %v", err)
+		}
+	}
+
+	if emailService != nil {
+		if err := emailService.Close(ctx); err != nil {
+			log.Ctx(ctx).Error().Msgf("close email service failed, err: %v", err)
+		}
+	}
+
+	if queryRepo != nil {
+		if err := queryRepo.Close(ctx); err != nil {
+			log.Ctx(ctx).Error().Msgf("close query repo failed, err: %v", err)
+		}
 	}
 
 	log.Ctx(ctx).Info().Msg("job executed successfully")
