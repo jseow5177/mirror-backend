@@ -4,6 +4,7 @@ import (
 	"cdp/config"
 	"cdp/dep"
 	"cdp/handler"
+	"cdp/pkg/logutil"
 	"cdp/pkg/router"
 	"cdp/pkg/service"
 	"cdp/repo"
@@ -12,13 +13,9 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
-	"github.com/rs/zerolog"
 	"math/rand"
 	"net"
 	"net/http"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -67,24 +64,7 @@ func main() {
 }
 
 func (s *server) Init() error {
-	opt := config.NewOptions()
-
-	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
-		opt.LogLevel = logLevel
-	}
-
-	if configPath := os.Getenv("CONFIG_PATH"); configPath != "" {
-		opt.ConfigPath = configPath
-	}
-
-	if serverPort := os.Getenv("PORT"); serverPort != "" {
-		if port, err := strconv.Atoi(serverPort); err == nil {
-			opt.Port = port
-		}
-	}
-
-	s.opt = opt
-
+	s.opt = config.NewOptions()
 	return nil
 }
 
@@ -93,7 +73,7 @@ func (s *server) Start() error {
 
 	// ====== init logger ===== //
 
-	s.ctx = initZeroLog(context.Background(), s.opt.LogLevel)
+	s.ctx = logutil.InitZeroLog(context.Background(), s.opt.LogLevel)
 
 	// ===== init config ===== //
 
@@ -178,7 +158,7 @@ func (s *server) Start() error {
 	s.tagRepo = repo.NewTagRepo(s.ctx, s.baseRepo)
 
 	// task repo
-	s.taskRepo = repo.NewTaskRepo(s.baseRepo)
+	s.taskRepo = repo.NewTaskRepo(s.ctx, s.baseRepo)
 
 	// ===== init deps ===== //
 
@@ -773,44 +753,4 @@ func (s *server) registerRoutes() http.Handler {
 	})
 
 	return r
-}
-
-func initZeroLog(ctx context.Context, level string) context.Context {
-	// use unix time
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-
-	// set log level
-	var logLevel zerolog.Level
-	switch strings.ToLower(level) {
-	case zerolog.LevelDebugValue:
-		logLevel = zerolog.DebugLevel
-	case zerolog.LevelInfoValue:
-		logLevel = zerolog.InfoLevel
-	case zerolog.LevelWarnValue:
-		logLevel = zerolog.WarnLevel
-	case zerolog.LevelErrorValue:
-		logLevel = zerolog.ErrorLevel
-	case zerolog.LevelFatalValue:
-		logLevel = zerolog.FatalLevel
-	default:
-		logLevel = zerolog.TraceLevel
-	}
-	zerolog.SetGlobalLevel(logLevel)
-
-	// show caller: github.com/rs/zerolog#add-file-and-line-number-to-log
-	zerolog.CallerMarshalFunc = func(_ uintptr, file string, line int) string {
-		short := file
-		for i := len(file) - 1; i > 0; i-- {
-			if file[i] == '/' {
-				short = file[i+1:]
-				break
-			}
-		}
-		file = short
-		return fmt.Sprintf("%s:%d", short, line)
-	}
-	log.Logger = log.With().Caller().Logger()
-
-	ctx = log.Logger.WithContext(ctx)
-	return ctx
 }

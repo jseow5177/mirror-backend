@@ -59,7 +59,7 @@ type TaskRepo interface {
 	GetPendingFileUploadTasks(ctx context.Context, resourceType entity.ResourceType) ([]*entity.Task, error)
 }
 
-func NewTaskRepo(baseRepo BaseRepo) TaskRepo {
+func NewTaskRepo(_ context.Context, baseRepo BaseRepo) TaskRepo {
 	return &taskRepo{
 		baseRepo: baseRepo,
 	}

@@ -1,13 +1,14 @@
 package hello_world
 
 import (
+	"cdp/pkg/service"
 	"context"
 	"fmt"
 )
 
 type HelloWorld struct{}
 
-func NewHelloWorld() *HelloWorld {
+func New() service.Job {
 	return &HelloWorld{}
 }
 
