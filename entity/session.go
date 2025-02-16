@@ -51,7 +51,7 @@ func NewSession(userID uint64) (*Session, error) {
 	now := time.Now()
 	expire := now.Add(config.ThreeMonths) // TODO: 3 months
 
-	token, err := goutil.GenerateRandomString(sessionByteLength)
+	token, err := goutil.GenerateSecureRandString(sessionByteLength)
 	if err != nil {
 		return nil, err
 	}

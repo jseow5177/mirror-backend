@@ -52,6 +52,7 @@ type server struct {
 	tenantHandler   handler.TenantHandler
 	userHandler     handler.UserHandler
 	taskHandler     handler.TaskHandler
+	accountHandler  handler.AccountHandler
 }
 
 func main() {
@@ -185,6 +186,7 @@ func (s *server) Start() error {
 	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.userRepo, s.activationRepo, s.emailService, s.fileRepo, s.queryRepo)
 	s.userHandler = handler.NewUserHandler(s.userRepo, s.tenantRepo, s.activationRepo, s.sessionRepo)
 	s.taskHandler = handler.NewTaskHandler(s.taskRepo, s.fileRepo, s.queryRepo, s.tenantRepo, s.tagRepo)
+	s.accountHandler = handler.NewAccountHandler(s.cfg, s.userHandler, s.tenantHandler, s.tagHandler, s.segmentHandler, s.emailHandler, s.campaignHandler, s.queryRepo, s.taskRepo)
 
 	// ===== start server ===== //
 
@@ -723,6 +725,19 @@ func (s *server) registerRoutes() http.Handler {
 		},
 		Middlewares: []router.Middleware{
 			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
+	})
+
+	// create_trial_account
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCreateTrialAccount,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CreateTrialAccountRequest),
+			Res: new(handler.CreateTrialAccountResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.accountHandler.CreateTrialAccount(ctx, req.(*handler.CreateTrialAccountRequest), res.(*handler.CreateTrialAccountResponse))
+			},
 		},
 	})
 

@@ -1,13 +1,24 @@
 package goutil
 
 import (
-	"crypto/rand"
+	cryptoRand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"golang.org/x/crypto/bcrypt"
+	"math/rand"
 )
+
+const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func GenerateRandString(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	return string(b)
+}
 
 func ContainsStr(arr []string, str string) bool {
 	for _, v := range arr {
@@ -54,9 +65,9 @@ func CompareBCrypt(hash, plain string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain))
 }
 
-func GenerateRandomBytes(n int) ([]byte, error) {
+func generateSecureRandBytes(n int) ([]byte, error) {
 	b := make([]byte, n)
-	_, err := rand.Read(b)
+	_, err := cryptoRand.Read(b)
 	if err != nil {
 		return nil, err
 	}
@@ -64,8 +75,8 @@ func GenerateRandomBytes(n int) ([]byte, error) {
 	return b, nil
 }
 
-func GenerateRandomString(n int) (string, error) {
-	b, err := GenerateRandomBytes(n)
+func GenerateSecureRandString(n int) (string, error) {
+	b, err := generateSecureRandBytes(n)
 	if err != nil {
 		return "", err
 	}

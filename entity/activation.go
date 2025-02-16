@@ -65,7 +65,7 @@ func (e *Activation) GetTargetID() uint64 {
 func NewActivation(targetID uint64, tokenType TokenType) (*Activation, error) {
 	now := uint64(time.Now().Unix())
 
-	token, err := goutil.GenerateRandomString(tokenByteLength)
+	token, err := goutil.GenerateSecureRandString(tokenByteLength)
 	if err != nil {
 		return nil, err
 	}

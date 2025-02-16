@@ -9,12 +9,13 @@ import (
 )
 
 type Config struct {
-	MetadataDB     MySQL         `json:"metadata_db"`
-	QueryDB        ElasticSearch `json:"query_db"`
-	FileStore      GoogleDrive   `json:"file_store"`
-	SMTP           Brevo         `json:"smtp"`
-	WebPage        WebPage       `json:"web_page"`
-	InternalSender string        `json:"internal_sender"`
+	MetadataDB        MySQL         `json:"metadata_db"`
+	QueryDB           ElasticSearch `json:"query_db"`
+	FileStore         GoogleDrive   `json:"file_store"`
+	SMTP              Brevo         `json:"smtp"`
+	WebPage           WebPage       `json:"web_page"`
+	InternalSender    string        `json:"internal_sender"`
+	TrialAccountToken string        `json:"trial_account_token"`
 }
 
 type ElasticSearch struct {
@@ -121,6 +122,7 @@ func NewConfig() *Config {
 				InitUser: "/init_user?token=%s",
 			},
 		},
+		TrialAccountToken: "",
 	}
 }
 

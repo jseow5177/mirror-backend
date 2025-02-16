@@ -14,8 +14,6 @@ import (
 	"time"
 )
 
-const batchSize = 3_000
-
 type TaskHandler interface {
 	CreateFileUploadTask(ctx context.Context, req *CreateFileUploadTaskRequest, res *CreateFileUploadTaskResponse) error
 	GetFileUploadTasks(ctx context.Context, req *GetFileUploadTasksRequest, res *GetFileUploadTasksResponse) error

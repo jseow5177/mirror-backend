@@ -268,8 +268,8 @@ func (r *InitTenantRequest) GetToken() string {
 }
 
 type InitTenantResponse struct {
-	Tenant          *entity.Tenant       `json:"tenant,omitempty"`
-	UserActivations []*entity.Activation `json:"user_activations,omitempty"`
+	Tenant *entity.Tenant `json:"tenant,omitempty"`
+	Users  []*entity.User `json:"users,omitempty"`
 }
 
 var InitTenantValidator = validator.MustForm(map[string]validator.Validator{
@@ -282,6 +282,7 @@ var InitTenantValidator = validator.MustForm(map[string]validator.Validator{
 			TenantID: true,
 			Password: true,
 		}),
+		Optional: true,
 	},
 })
 
@@ -340,6 +341,8 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 				acts = append(acts, act)
 				pendingUsers = append(pendingUsers, u)
 			}
+
+			u.ID = goutil.Uint64(userIDs[i])
 		}
 
 		if len(acts) != 0 {
@@ -378,7 +381,6 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 		}
 
 		res.Tenant = tenant
-		res.UserActivations = acts
 
 		return nil
 	}); err != nil {
@@ -424,6 +426,8 @@ func (h *tenantHandler) InitTenant(ctx context.Context, req *InitTenantRequest, 
 			}
 		}
 	}(context.WithoutCancel(ctx))
+
+	res.Users = users
 
 	return nil
 }
