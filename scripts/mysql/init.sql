@@ -1,3 +1,5 @@
+DROP DATABASE IF EXISTS mirrorcdp_db;
+
 CREATE DATABASE IF NOT EXISTS mirrorcdp_db;
 
 USE mirrorcdp_db;

@@ -186,7 +186,8 @@ func (s *server) Start() error {
 	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.userRepo, s.activationRepo, s.emailService, s.fileRepo, s.queryRepo)
 	s.userHandler = handler.NewUserHandler(s.userRepo, s.tenantRepo, s.activationRepo, s.sessionRepo)
 	s.taskHandler = handler.NewTaskHandler(s.taskRepo, s.fileRepo, s.queryRepo, s.tenantRepo, s.tagRepo)
-	s.accountHandler = handler.NewAccountHandler(s.cfg, s.userHandler, s.tenantHandler, s.tagHandler, s.segmentHandler, s.emailHandler, s.campaignHandler, s.queryRepo, s.taskRepo)
+	s.accountHandler = handler.NewAccountHandler(s.cfg, s.userHandler, s.tenantHandler, s.tagHandler, s.segmentHandler,
+		s.emailHandler, s.campaignRepo, s.queryRepo, s.taskRepo, s.campaignLogRepo)
 
 	// ===== start server ===== //
 
