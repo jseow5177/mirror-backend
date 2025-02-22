@@ -14,7 +14,6 @@ type TokenType uint32
 const (
 	TokenTypeUnknown TokenType = iota
 	TokenTypeUser
-	TokenTypeTenant
 )
 
 type Activation struct {

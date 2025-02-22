@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"golang.org/x/crypto/bcrypt"
 	"math/rand"
+	"net/url"
 )
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -93,4 +94,21 @@ func Base64Decode(s string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+func BuildURL(domain, path string, params map[string]string) (string, error) {
+	u, err := url.Parse(domain)
+	if err != nil {
+		return "", err
+	}
+
+	u.Path = path
+
+	query := u.Query()
+	for key, value := range params {
+		query.Set(key, value)
+	}
+	u.RawQuery = query.Encode()
+
+	return u.String(), nil
 }

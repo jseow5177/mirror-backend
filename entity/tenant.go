@@ -10,7 +10,6 @@ type TenantStatus uint32
 
 const (
 	TenantStatusUnknown TenantStatus = iota
-	TenantStatusPending
 	TenantStatusNormal
 	TenantStatusDeleted
 )
@@ -103,13 +102,6 @@ func (e *Tenant) GetExtInfo() *TenantExtInfo {
 func (e *Tenant) IsNormal() bool {
 	if e != nil {
 		return e.Status == TenantStatusNormal
-	}
-	return false
-}
-
-func (e *Tenant) IsPending() bool {
-	if e != nil {
-		return e.Status == TenantStatusPending
 	}
 	return false
 }

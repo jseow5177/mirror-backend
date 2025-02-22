@@ -1,4 +1,4 @@
-// ignore_security_alert_file SQL_INJECTION
+// Package repo ignore_security_alert_file SQL_INJECTION
 package repo
 
 import (
@@ -206,6 +206,10 @@ func (r *baseRepo) Update(ctx context.Context, model interface{}) error {
 }
 
 func (r *baseRepo) RunTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	if r.hasTx(ctx) {
+		return fn(ctx)
+	}
+
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		ctxWithTx := context.WithValue(ctx, txKey{}, tx)
 		if err := fn(ctxWithTx); err != nil {
@@ -236,4 +240,9 @@ func (r *baseRepo) getDb(ctx context.Context) *gorm.DB {
 		db = r.db
 	}
 	return db
+}
+
+func (r *baseRepo) hasTx(ctx context.Context) bool {
+	_, ok := ctx.Value(txKey{}).(*gorm.DB)
+	return ok
 }

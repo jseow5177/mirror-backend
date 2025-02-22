@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"bytes"
+	"cdp/config"
+	"cdp/dep"
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
@@ -14,22 +17,28 @@ import (
 )
 
 type UserHandler interface {
-	CreateUser(ctx context.Context, req *CreateUserRequest, res *CreateUserResponse) error
-	IsUserPendingInit(ctx context.Context, req *IsUserPendingInitRequest, res *IsUserPendingInitResponse) error
+	CreateUsers(ctx context.Context, req *CreateUsersRequest, res *CreateUsersResponse) error
 	InitUser(ctx context.Context, req *InitUserRequest, res *InitUserResponse) error
 	LogIn(ctx context.Context, req *LogInRequest, res *LogInResponse) error
 	LogOut(ctx context.Context, req *LogOutRequest, _ *LogOutResponse) error
 }
 
 type userHandler struct {
+	cfg            *config.Config
+	txService      repo.TxService
+	emailService   dep.EmailService
 	userRepo       repo.UserRepo
 	tenantRepo     repo.TenantRepo
 	activationRepo repo.ActivationRepo
 	sessionRepo    repo.SessionRepo
 }
 
-func NewUserHandler(userRepo repo.UserRepo, tenantRepo repo.TenantRepo, activationRepo repo.ActivationRepo, sessionRepo repo.SessionRepo) UserHandler {
+func NewUserHandler(cfg *config.Config, txService repo.TxService, emailService dep.EmailService,
+	userRepo repo.UserRepo, tenantRepo repo.TenantRepo, activationRepo repo.ActivationRepo, sessionRepo repo.SessionRepo) UserHandler {
 	return &userHandler{
+		cfg:            cfg,
+		txService:      txService,
+		emailService:   emailService,
 		userRepo:       userRepo,
 		tenantRepo:     tenantRepo,
 		activationRepo: activationRepo,
@@ -61,9 +70,17 @@ func (h *userHandler) LogOut(ctx context.Context, req *LogOutRequest, _ *LogOutR
 }
 
 type LogInRequest struct {
-	TenantName *string `json:"tenant_name"`
+	TenantID   *uint64 `json:"tenant_id,omitempty"`
+	TenantName *string `json:"tenant_name,omitempty"`
 	Username   *string `json:"username,omitempty"`
 	Password   *string `json:"password,omitempty"`
+}
+
+func (r *LogInRequest) GetTenantID() uint64 {
+	if r != nil && r.TenantID != nil {
+		return *r.TenantID
+	}
+	return 0
 }
 
 func (r *LogInRequest) GetTenantName() string {
@@ -92,9 +109,14 @@ type LogInResponse struct {
 }
 
 var LogInValidator = validator.MustForm(map[string]validator.Validator{
-	"tenant_name": &validator.String{},
-	"username":    &validator.String{},
-	"password":    &validator.String{},
+	"tenant_id": &validator.UInt64{
+		Optional: true,
+	},
+	"tenant_name": &validator.String{
+		Optional: true,
+	},
+	"username": &validator.String{},
+	"password": &validator.String{},
 })
 
 func (h *userHandler) LogIn(ctx context.Context, req *LogInRequest, res *LogInResponse) error {
@@ -104,7 +126,15 @@ func (h *userHandler) LogIn(ctx context.Context, req *LogInRequest, res *LogInRe
 
 	stdErr := errutil.ValidationError(errors.New("incorrect tenant name or username or password"))
 
-	tenant, err := h.tenantRepo.GetByName(ctx, req.GetTenantName())
+	var (
+		err    error
+		tenant *entity.Tenant
+	)
+	if req.TenantID != nil {
+		tenant, err = h.tenantRepo.GetByID(ctx, req.GetTenantID())
+	} else {
+		tenant, err = h.tenantRepo.GetByName(ctx, req.GetTenantName())
+	}
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get tenant error: %v", err)
 		return stdErr
@@ -199,6 +229,13 @@ type InitUserRequest struct {
 	Password *string `json:"password,omitempty"`
 }
 
+func (r *InitUserRequest) GetToken() string {
+	if r != nil && r.Token != nil {
+		return *r.Token
+	}
+	return ""
+}
+
 func (r *InitUserRequest) GetPassword() string {
 	if r != nil && r.Password != nil {
 		return *r.Password
@@ -207,12 +244,13 @@ func (r *InitUserRequest) GetPassword() string {
 }
 
 type InitUserResponse struct {
-	User *entity.User `json:"user,omitempty"`
+	User    *entity.User    `json:"user,omitempty"`
+	Session *entity.Session `json:"session,omitempty"`
 }
 
 var InitUserValidator = validator.MustForm(map[string]validator.Validator{
 	"token":    &validator.String{},
-	"password": &validator.String{},
+	"password": PasswordValidator(false),
 })
 
 func (h *userHandler) InitUser(ctx context.Context, req *InitUserRequest, res *InitUserResponse) error {
@@ -226,63 +264,66 @@ func (h *userHandler) InitUser(ctx context.Context, req *InitUserRequest, res *I
 	isUserPendingInitResponse := new(IsUserPendingInitResponse)
 
 	if err := h.IsUserPendingInit(ctx, isUserPendingInitRequest, isUserPendingInitResponse); err != nil {
-		return err
+		return errutil.ValidationError(errors.New("invalid token/user"))
 	}
 
 	user := isUserPendingInitResponse.User
 	if !isUserPendingInitResponse.GetIsPending() {
-		return errutil.ValidationError(fmt.Errorf("user is not pending, name: %v, tenant_id: %v", user.GetUsername(), user.GetTenantID()))
+		log.Ctx(ctx).Info().Msgf("user is not pending, token: %v", req.GetToken())
+		return errutil.ValidationError(errors.New("invalid token/user"))
 	}
 
-	newUser, err := entity.NewUser(
-		user.GetTenantID(), user.GetEmail(), req.GetPassword(), user.GetDisplayName(),
-	)
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("create new user failed: %v", err)
+	if err := h.txService.RunTx(ctx, func(ctx context.Context) error {
+		newUser, err := entity.NewUser(
+			user.GetTenantID(), user.GetEmail(), req.GetPassword(), user.GetDisplayName(),
+		)
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("create new user failed: %v", err)
+			return err
+		}
+
+		user.Update(newUser)
+
+		if err := h.userRepo.Update(ctx, user); err != nil {
+			log.Ctx(ctx).Error().Msgf("update user failed: %v", err)
+			return err
+		}
+
+		var (
+			logInReq = &LogInRequest{
+				TenantID: user.TenantID,
+				Username: user.Username,
+				Password: req.Password,
+			}
+			logInRes = new(LogInResponse)
+		)
+		if err := h.LogIn(ctx, logInReq, logInRes); err != nil {
+			log.Ctx(ctx).Error().Msgf("login user failed: %v", err)
+			return err
+		}
+
+		res.User = user
+		res.Session = logInRes.Session
+
+		return nil
+	}); err != nil {
 		return err
 	}
-
-	user.Update(newUser)
-
-	if err := h.userRepo.Update(ctx, user); err != nil {
-		log.Ctx(ctx).Error().Msgf("update user failed: %v", err)
-		return err
-	}
-
-	res.User = user
 
 	return nil
 }
 
 type CreateUserRequest struct {
-	TenantID    *uint64 `json:"tenant_id,omitempty"`
 	Email       *string `json:"email,omitempty"`
 	DisplayName *string `json:"display_name,omitempty"`
 	Password    *string `json:"password,omitempty"`
 }
 
-type CreateUserOptionalFields struct {
-	TenantID bool
-	Password bool
-}
-
-func GetCreateUserValidator(opt CreateUserOptionalFields) validator.Validator {
-	return validator.MustForm(map[string]validator.Validator{
-		"tenant_id": &validator.UInt64{
-			Optional: opt.TenantID,
-		},
-		"email":        EmailValidator(false),
-		"display_name": DisplayNameValidator(true),
-		"password":     PasswordValidator(opt.Password),
-	})
-}
-
-func (r *CreateUserRequest) GetTenantID() uint64 {
-	if r != nil && r.TenantID != nil {
-		return *r.TenantID
-	}
-	return 0
-}
+var CreateUserValidator = validator.MustForm(map[string]validator.Validator{
+	"email":        EmailValidator(false),
+	"display_name": DisplayNameValidator(true),
+	"password":     PasswordValidator(true),
+})
 
 func (r *CreateUserRequest) GetEmail() string {
 	if r != nil && r.Email != nil {
@@ -305,8 +346,8 @@ func (r *CreateUserRequest) GetPassword() string {
 	return ""
 }
 
-func (r *CreateUserRequest) ToUser() (*entity.User, error) {
-	return entity.NewUser(r.GetTenantID(), r.GetEmail(), r.GetPassword(), r.GetDisplayName())
+func (r *CreateUserRequest) ToUser(tenantID uint64) (*entity.User, error) {
+	return entity.NewUser(tenantID, r.GetEmail(), r.GetPassword(), r.GetDisplayName())
 }
 
 func (r *CreateUserRequest) extractUsernameFromEmail() (string, error) {
@@ -317,51 +358,141 @@ func (r *CreateUserRequest) extractUsernameFromEmail() (string, error) {
 	return parts[0], nil
 }
 
-type CreateUserResponse struct {
-	User *entity.User `json:"user,omitempty"`
+type CreateUsersRequest struct {
+	ContextInfo
+	Users []*CreateUserRequest `json:"users,omitempty"`
 }
 
-func (h *userHandler) CreateUser(ctx context.Context, req *CreateUserRequest, res *CreateUserResponse) error {
-	if err := GetCreateUserValidator(CreateUserOptionalFields{
-		Password: true,
-	}).Validate(req); err != nil {
+type CreateUsersResponse struct {
+	Users []*entity.User `json:"users,omitempty"`
+}
+
+func (r *CreateUsersRequest) ToUsers() ([]*entity.User, error) {
+	users := make([]*entity.User, 0, len(r.Users))
+
+	for _, req := range r.Users {
+		user, err := req.ToUser(r.GetTenantID())
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+
+	return users, nil
+}
+
+var CreateUsersValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator(false, true),
+	"users": &validator.Slice{
+		Optional:  false,
+		MinLen:    1,
+		MaxLen:    5,
+		Validator: CreateUserValidator,
+	},
+})
+
+func (h *userHandler) CreateUsers(ctx context.Context, req *CreateUsersRequest, res *CreateUsersResponse) error {
+	if err := CreateUsersValidator.Validate(req); err != nil {
 		return errutil.ValidationError(err)
 	}
 
-	tenant, err := h.tenantRepo.GetByID(ctx, req.GetTenantID())
+	users, err := req.ToUsers()
 	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get tenant error: %v", err)
+		log.Ctx(ctx).Error().Msgf("convert to users error: %v", err)
 		return err
 	}
 
-	if !tenant.IsNormal() {
-		return errutil.ValidationError(errors.New("tenant is not status normal"))
+	usersMap := make(map[string]bool, len(users))
+	for _, u := range users {
+		if usersMap[u.GetEmail()] {
+			return errutil.ValidationError(fmt.Errorf("duplicate user email found: %v", u.GetEmail()))
+		} else {
+			usersMap[u.GetEmail()] = true
+		}
 	}
 
-	user, err := h.userRepo.GetByEmail(ctx, req.GetTenantID(), req.GetEmail())
-	if err == nil {
-		return errutil.ConflictError(errors.New("user already exists"))
-	}
+	var (
+		acts         = make([]*entity.Activation, 0)
+		pendingUsers = make([]*entity.User, 0)
+	)
+	if err := h.txService.RunTx(ctx, func(ctx context.Context) error {
+		userIDs, err := h.userRepo.CreateMany(ctx, users)
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("create users failed: %v", err)
+			return err
+		}
 
-	if !errors.Is(err, repo.ErrUserNotFound) {
-		log.Ctx(ctx).Error().Msgf("get user error: %v", err)
+		for i, u := range users {
+			if u.IsPending() {
+				act, err := entity.NewActivation(userIDs[i], entity.TokenTypeUser)
+				if err != nil {
+					log.Ctx(ctx).Error().Msgf("new activation failed: %v", err)
+					return err
+				}
+				acts = append(acts, act)
+				pendingUsers = append(pendingUsers, u)
+			}
+
+			u.ID = goutil.Uint64(userIDs[i])
+		}
+
+		if len(acts) != 0 {
+			_, err = h.activationRepo.CreateMany(ctx, acts)
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("create activations failed: %v", err)
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
 		return err
 	}
 
-	user, err = req.ToUser()
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("failed to convert to user: %v", err)
-		return err
-	}
+	go func(ctx context.Context) {
+		for i, user := range pendingUsers {
+			act := acts[i]
 
-	id, err := h.userRepo.Create(ctx, user)
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("failed to create user: %v", err)
-		return err
-	}
+			initUserLink, err := goutil.BuildURL(h.cfg.WebPage.Domain, h.cfg.WebPage.Paths.InitUser, map[string]string{
+				"token": act.GetToken(),
+			})
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("create init user link failed: %v", err)
+				continue
+			}
 
-	user.ID = goutil.Uint64(id)
-	res.User = user
+			emailVars := map[string]string{
+				"username":       user.GetUsername(),
+				"tenant_name":    req.GetTenantName(),
+				"init_user_link": initUserLink,
+			}
+
+			var content bytes.Buffer
+			if err := initUserTmpl.Execute(&content, emailVars); err != nil {
+				log.Ctx(ctx).Error().Msgf("build email template failed: %v, tenant: %v, user: %v", err,
+					req.GetTenantName(), user.GetUsername())
+				continue
+			}
+
+			sendEmailReq := &dep.SendSmtpEmail{
+				From: &dep.Sender{
+					Email: h.cfg.InternalSender,
+				},
+				To: []*dep.Receiver{
+					{Email: user.GetEmail()},
+				},
+				Subject:     "Welcome to Mirror!",
+				HtmlContent: string(content.Bytes()),
+			}
+			if err := h.emailService.SendEmail(ctx, sendEmailReq); err != nil {
+				log.Ctx(ctx).Error().Msgf("send email failed: %v, tenant: %v, user: %v", err,
+					req.GetTenantName(), user.GetUsername())
+				continue
+			}
+		}
+	}(context.WithoutCancel(ctx))
+
+	res.Users = users
 
 	return nil
 }

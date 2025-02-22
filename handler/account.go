@@ -40,7 +40,7 @@ type accountHandler struct {
 	campaignLogRepo repo.CampaignLogRepo
 }
 
-func NewAccountHandler(cfg *config.Config, userHandler UserHandler, tenantHandler TenantHandler,
+func NewAccountHandler(cfg *config.Config, tenantHandler TenantHandler, userHandler UserHandler,
 	tagHandler TagHandler, segmentHandler SegmentHandler, emailHandler EmailHandler, campaignRepo repo.CampaignRepo,
 	queryRepo repo.QueryRepo, taskRepo repo.TaskRepo, campaignLogRepo repo.CampaignLogRepo) AccountHandler {
 	return &accountHandler{
@@ -85,25 +85,15 @@ func (h *accountHandler) CreateTrialAccount(ctx context.Context, req *CreateTria
 		return errutil.ValidationError(errors.New("invalid trial account token"))
 	}
 
-	// ========== Create Tenant ==========
+	// ========== Create Tenant with First User ==========
 
 	var (
 		suffix     = strings.ToLower(goutil.GenerateRandString(15))
 		tenantName = fmt.Sprintf("demo-mirror-%s", suffix)
-	)
 
-	var (
-		createTenantReq = &CreateTenantRequest{
-			Name: goutil.String(tenantName),
-		}
-		createTenantRes = new(CreateTenantResponse)
+		username = "admin"
+		email    = fmt.Sprintf("%s@mirror.com", username)
 	)
-	if err := h.tenantHandler.CreateTenant(ctx, createTenantReq, createTenantRes); err != nil {
-		log.Ctx(ctx).Error().Msgf("create tenant error: %s", err)
-		return err
-	}
-
-	// ========== Init Tenant with Admin User ==========
 
 	password, err := goutil.GenerateSecureRandString(15)
 	if err != nil {
@@ -112,28 +102,27 @@ func (h *accountHandler) CreateTrialAccount(ctx context.Context, req *CreateTria
 	}
 
 	var (
-		username = "admin"
-		email    = fmt.Sprintf("%s@mirror.com", username)
-
-		initTenantReq = &InitTenantRequest{
-			Token: createTenantRes.Token,
-			User: &CreateUserRequest{
-				Email:    goutil.String(email),
-				Password: goutil.String(password),
+		createTenantReq = &CreateTenantRequest{
+			Name: goutil.String(tenantName),
+			Users: []*CreateUserRequest{
+				{
+					Email:    goutil.String(email),
+					Password: goutil.String(password),
+				},
 			},
 		}
-		initTenantRes = new(InitTenantResponse)
+		createTenantRes = new(CreateTenantResponse)
 	)
-	if err := h.tenantHandler.InitTenant(ctx, initTenantReq, initTenantRes); err != nil {
-		log.Ctx(ctx).Error().Msgf("init tenant error: %s", err)
+	if err := h.tenantHandler.CreateTenant(ctx, createTenantReq, createTenantRes); err != nil {
+		log.Ctx(ctx).Error().Msgf("create tenant error: %s", err)
 		return err
 	}
 
 	// ========== Create Two Tags ==========
 
 	var (
-		tenant    = initTenantRes.Tenant
-		adminUser = initTenantRes.Users[0]
+		tenant    = createTenantRes.Tenant
+		adminUser = createTenantRes.Users[0]
 	)
 
 	contextInfo := ContextInfo{

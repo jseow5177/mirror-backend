@@ -119,7 +119,7 @@ func NewConfig() *Config {
 		WebPage: WebPage{
 			Domain: "http://localhost:3000",
 			Paths: Paths{
-				InitUser: "/init_user?token=%s",
+				InitUser: "/user/init",
 			},
 		},
 		TrialAccountToken: "",
