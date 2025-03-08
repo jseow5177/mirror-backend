@@ -6,6 +6,7 @@ import (
 	"cdp/pkg/errutil"
 	"context"
 	"errors"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 	"time"
 )
@@ -41,14 +42,77 @@ type SessionRepo interface {
 }
 
 type sessionRepo struct {
-	baseRepo BaseRepo
+	cacheKeyPrefix string
+	baseRepo       BaseRepo
+	baseCache      BaseCache
 }
 
-func NewSessionRepo(_ context.Context, baseRepo BaseRepo) SessionRepo {
-	return &sessionRepo{baseRepo: baseRepo}
+func NewSessionRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache) (SessionRepo, error) {
+	r := &sessionRepo{
+		cacheKeyPrefix: "session",
+		baseRepo:       baseRepo,
+		baseCache:      baseCache,
+	}
+
+	if err := r.refreshCache(ctx); err != nil {
+		return nil, err
+	}
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := r.refreshCache(ctx); err != nil {
+					log.Ctx(ctx).Error().Msgf("failed to refresh session cache, err: %v", err)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return r, nil
+}
+
+func (r *sessionRepo) refreshCache(ctx context.Context) error {
+	allSessions, err := r.getMany(ctx, nil, true)
+	if err != nil {
+		return err
+	}
+
+	log.Ctx(ctx).Info().Msgf("refreshing session cache, %d sessions found", len(allSessions))
+	for _, session := range allSessions {
+		r.setCache(ctx, session)
+	}
+
+	return nil
+}
+
+func (r *sessionRepo) setCache(ctx context.Context, session *entity.Session) {
+	r.baseCache.Set(ctx, r.cacheKeyPrefix, 0, session.GetTokenHash(), session)
+	r.baseCache.Set(ctx, r.cacheKeyPrefix, 0, session.GetUserID(), session)
+}
+
+func (r *sessionRepo) getFromCache(ctx context.Context, uniqKey interface{}) *entity.Session {
+	if v, ok := r.baseCache.Get(ctx, r.cacheKeyPrefix, 0, uniqKey); ok {
+		return v.(*entity.Session)
+	}
+	return nil
+}
+
+func (r *sessionRepo) deleteFromCache(ctx context.Context, uniqKey interface{}) {
+	r.baseCache.Del(ctx, r.cacheKeyPrefix, 0, uniqKey)
 }
 
 func (r *sessionRepo) GetByUserID(ctx context.Context, userID uint64) (*entity.Session, error) {
+	session := r.getFromCache(ctx, userID)
+	if session != nil {
+		return session, nil
+	}
+
 	return r.get(ctx, []*Condition{
 		{
 			Field: "user_id",
@@ -59,6 +123,11 @@ func (r *sessionRepo) GetByUserID(ctx context.Context, userID uint64) (*entity.S
 }
 
 func (r *sessionRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*entity.Session, error) {
+	session := r.getFromCache(ctx, tokenHash)
+	if session != nil {
+		return session, nil
+	}
+
 	return r.get(ctx, []*Condition{
 		{
 			Field: "token_hash",
@@ -69,7 +138,7 @@ func (r *sessionRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*en
 }
 
 func (r *sessionRepo) DeleteByUserID(ctx context.Context, userID uint64) error {
-	return r.baseRepo.Delete(ctx, new(Session), &Filter{
+	if err := r.baseRepo.Delete(ctx, new(Session), &Filter{
 		Conditions: []*Condition{
 			{
 				Field: "user_id",
@@ -77,7 +146,17 @@ func (r *sessionRepo) DeleteByUserID(ctx context.Context, userID uint64) error {
 				Op:    OpEq,
 			},
 		},
-	})
+	}); err != nil {
+		return err
+	}
+
+	session := r.getFromCache(ctx, userID)
+	if session != nil {
+		r.deleteFromCache(ctx, userID)
+		r.deleteFromCache(ctx, session.GetTokenHash())
+	}
+
+	return nil
 }
 
 func (r *sessionRepo) get(ctx context.Context, conditions []*Condition, filterExpire bool) (*entity.Session, error) {
@@ -93,6 +172,22 @@ func (r *sessionRepo) get(ctx context.Context, conditions []*Condition, filterEx
 	}
 
 	return ToSession(session), nil
+}
+
+func (r *sessionRepo) getMany(ctx context.Context, conditions []*Condition, filterExpire bool) ([]*entity.Session, error) {
+	res, _, err := r.baseRepo.GetMany(ctx, new(Session), &Filter{
+		Conditions: r.maybeAddExpireFilter(conditions, filterExpire),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sessions := make([]*entity.Session, len(res))
+	for i, m := range res {
+		sessions[i] = ToSession(m.(*Session))
+	}
+
+	return sessions, nil
 }
 
 func (r *sessionRepo) maybeAddExpireFilter(conditions []*Condition, filterExpire bool) []*Condition {

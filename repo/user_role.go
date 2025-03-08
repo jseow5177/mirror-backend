@@ -2,7 +2,17 @@ package repo
 
 import (
 	"cdp/entity"
+	"cdp/pkg/errutil"
+	"cdp/pkg/goutil"
 	"context"
+	"errors"
+	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
+	"time"
+)
+
+var (
+	ErrUserRoleNotFound = errutil.NotFoundError(errors.New("user role not found"))
 )
 
 type UserRole struct {
@@ -29,17 +39,69 @@ type UserRoleRepo interface {
 	Create(ctx context.Context, userRole *entity.UserRole) (uint64, error)
 	CreateMany(ctx context.Context, userRoles []*entity.UserRole) ([]uint64, error)
 	Update(ctx context.Context, userRole *entity.UserRole) error
+	GetByUserID(ctx context.Context, tenantID, userID uint64) (*entity.UserRole, error)
 	GetManyByUserIDs(ctx context.Context, tenantID uint64, userIDs []uint64) ([]*entity.UserRole, error)
 }
 
 type userRoleRepo struct {
-	baseRepo BaseRepo
+	cacheKeyPrefix string
+	baseRepo       BaseRepo
+	baseCache      BaseCache
 }
 
-func NewUserRoleRepo(_ context.Context, baseRepo BaseRepo) UserRoleRepo {
-	return &userRoleRepo{
-		baseRepo: baseRepo,
+func NewUserRoleRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache) (UserRoleRepo, error) {
+	r := &userRoleRepo{
+		cacheKeyPrefix: "user_role",
+		baseRepo:       baseRepo,
+		baseCache:      baseCache,
 	}
+
+	if err := r.refreshCache(ctx); err != nil {
+		return nil, err
+	}
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := r.refreshCache(ctx); err != nil {
+					log.Ctx(ctx).Error().Msgf("failed to refresh user role cache, err: %v", err)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return r, nil
+}
+
+func (r *userRoleRepo) refreshCache(ctx context.Context) error {
+	allUserRoles, err := r.getMany(ctx, nil, nil)
+	if err != nil {
+		return err
+	}
+
+	log.Ctx(ctx).Info().Msgf("refreshing user roles cache, %d user roles found", len(allUserRoles))
+	for _, userRole := range allUserRoles {
+		r.setCache(ctx, userRole)
+	}
+
+	return nil
+}
+
+func (r *userRoleRepo) setCache(ctx context.Context, userRole *entity.UserRole) {
+	r.baseCache.Set(ctx, r.cacheKeyPrefix, userRole.GetTenantID(), userRole.GetUserID(), userRole)
+}
+
+func (r *userRoleRepo) getFromCache(ctx context.Context, tenantID uint64, uniqKey interface{}) *entity.UserRole {
+	if v, ok := r.baseCache.Get(ctx, r.cacheKeyPrefix, tenantID, uniqKey); ok {
+		return v.(*entity.UserRole)
+	}
+	return nil
 }
 
 func (r *userRoleRepo) Create(ctx context.Context, userRole *entity.UserRole) (uint64, error) {
@@ -71,20 +133,79 @@ func (r *userRoleRepo) CreateMany(ctx context.Context, userRoles []*entity.UserR
 }
 
 func (r *userRoleRepo) Update(ctx context.Context, userRole *entity.UserRole) error {
-	return r.baseRepo.Update(ctx, ToUserRoleModel(userRole))
+	if err := r.baseRepo.Update(ctx, ToUserRoleModel(userRole)); err != nil {
+		return err
+	}
+
+	r.setCache(ctx, userRole)
+
+	return nil
 }
 
 func (r *userRoleRepo) GetManyByUserIDs(ctx context.Context, tenantID uint64, userIDs []uint64) ([]*entity.UserRole, error) {
-	return r.getMany(ctx, tenantID, []*Condition{
+	var (
+		cacheUserRoles = make([]*entity.UserRole, 0, len(userIDs))
+		missingUserIDs = make([]uint64, 0, len(userIDs))
+	)
+
+	for _, userID := range userIDs {
+		userRole := r.getFromCache(ctx, tenantID, userID)
+		if userRole == nil {
+			missingUserIDs = append(missingUserIDs, userID)
+		} else {
+			cacheUserRoles = append(cacheUserRoles, userRole)
+		}
+	}
+
+	if len(missingUserIDs) == 0 {
+		return cacheUserRoles, nil
+	}
+
+	dbRole, err := r.getMany(ctx, goutil.Uint64(tenantID), []*Condition{
 		{
 			Field: "user_id",
 			Value: userIDs,
 			Op:    OpIn,
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return append(cacheUserRoles, dbRole...), nil
 }
 
-func (r *userRoleRepo) getMany(ctx context.Context, tenantID uint64, conditions []*Condition) ([]*entity.UserRole, error) {
+func (r *userRoleRepo) GetByUserID(ctx context.Context, tenantID, userID uint64) (*entity.UserRole, error) {
+	userRole := r.getFromCache(ctx, tenantID, userID)
+	if userRole != nil {
+		return userRole, nil
+	}
+
+	return r.get(ctx, goutil.Uint64(tenantID), []*Condition{
+		{
+			Field: "user_id",
+			Value: userID,
+			Op:    OpEq,
+		},
+	})
+}
+
+func (r *userRoleRepo) get(ctx context.Context, tenantID *uint64, conditions []*Condition) (*entity.UserRole, error) {
+	userRole := new(UserRole)
+
+	if err := r.baseRepo.Get(ctx, userRole, &Filter{
+		Conditions: append(r.getBaseConditions(tenantID), conditions...),
+	}); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserRoleNotFound
+		}
+		return nil, err
+	}
+
+	return ToUserRole(userRole), nil
+}
+
+func (r *userRoleRepo) getMany(ctx context.Context, tenantID *uint64, conditions []*Condition) ([]*entity.UserRole, error) {
 	res, _, err := r.baseRepo.GetMany(ctx, new(UserRole), &Filter{
 		Conditions: append(r.getBaseConditions(tenantID), conditions...),
 	})
@@ -100,15 +221,19 @@ func (r *userRoleRepo) getMany(ctx context.Context, tenantID uint64, conditions 
 	return userRoles, nil
 }
 
-func (r *userRoleRepo) getBaseConditions(tenantID uint64) []*Condition {
-	return []*Condition{
-		{
+func (r *userRoleRepo) getBaseConditions(tenantID *uint64) []*Condition {
+	conditions := make([]*Condition, 0)
+
+	if tenantID != nil {
+		conditions = append(conditions, &Condition{
 			Field:         "tenant_id",
 			Value:         tenantID,
 			Op:            OpEq,
 			NextLogicalOp: LogicalOpAnd,
-		},
+		})
 	}
+
+	return conditions
 }
 
 func ToUserRole(userRole *UserRole) *entity.UserRole {

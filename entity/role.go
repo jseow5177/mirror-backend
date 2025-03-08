@@ -63,6 +63,13 @@ func (e *Role) GetID() uint64 {
 	return 0
 }
 
+func (e *Role) GetTenantID() uint64 {
+	if e != nil && e.TenantID != nil {
+		return *e.TenantID
+	}
+	return 0
+}
+
 func (e *Role) GetName() string {
 	if e != nil && e.Name != nil {
 		return *e.Name
@@ -147,6 +154,13 @@ func (e *UserRole) GetUserID() uint64 {
 func (e *UserRole) GetRoleID() uint64 {
 	if e != nil && e.RoleID != nil {
 		return *e.RoleID
+	}
+	return 0
+}
+
+func (e *UserRole) GetTenantID() uint64 {
+	if e != nil && e.TenantID != nil {
+		return *e.TenantID
 	}
 	return 0
 }

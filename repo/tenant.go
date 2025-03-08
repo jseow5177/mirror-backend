@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
+	"time"
 )
 
 var (
@@ -56,11 +58,65 @@ type TenantRepo interface {
 }
 
 type tenantRepo struct {
-	baseRepo BaseRepo
+	cacheKeyPrefix string
+	baseRepo       BaseRepo
+	baseCache      BaseCache
 }
 
-func NewTenantRepo(_ context.Context, baseRepo BaseRepo) TenantRepo {
-	return &tenantRepo{baseRepo: baseRepo}
+func NewTenantRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache) (TenantRepo, error) {
+	r := &tenantRepo{
+		cacheKeyPrefix: "tenant",
+		baseRepo:       baseRepo,
+		baseCache:      baseCache,
+	}
+
+	if err := r.refreshCache(ctx); err != nil {
+		return nil, err
+	}
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := r.refreshCache(ctx); err != nil {
+					log.Ctx(ctx).Error().Msgf("failed to refresh tenant cache, err: %v", err)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return r, nil
+}
+
+func (r *tenantRepo) refreshCache(ctx context.Context) error {
+	allTenants, err := r.getMany(ctx, nil, true)
+	if err != nil {
+		return err
+	}
+
+	log.Ctx(ctx).Info().Msgf("refreshing tenant cache, %d tenants found", len(allTenants))
+	for _, tenant := range allTenants {
+		r.setCache(ctx, tenant)
+	}
+
+	return nil
+}
+
+func (r *tenantRepo) setCache(ctx context.Context, tenant *entity.Tenant) {
+	r.baseCache.Set(ctx, r.cacheKeyPrefix, 0, tenant.GetID(), tenant)
+	r.baseCache.Set(ctx, r.cacheKeyPrefix, 0, tenant.GetName(), tenant)
+}
+
+func (r *tenantRepo) getFromCache(ctx context.Context, uniqKey interface{}) *entity.Tenant {
+	if v, ok := r.baseCache.Get(ctx, r.cacheKeyPrefix, 0, uniqKey); ok {
+		return v.(*entity.Tenant)
+	}
+	return nil
 }
 
 func (r *tenantRepo) Update(ctx context.Context, tenant *entity.Tenant) error {
@@ -73,10 +129,17 @@ func (r *tenantRepo) Update(ctx context.Context, tenant *entity.Tenant) error {
 		return err
 	}
 
+	r.setCache(ctx, tenant)
+
 	return nil
 }
 
 func (r *tenantRepo) GetByName(ctx context.Context, tenantName string) (*entity.Tenant, error) {
+	tenant := r.getFromCache(ctx, tenantName)
+	if tenant != nil {
+		return tenant, nil
+	}
+
 	return r.get(ctx, []*Condition{
 		{
 			Field: "name",
@@ -87,6 +150,11 @@ func (r *tenantRepo) GetByName(ctx context.Context, tenantName string) (*entity.
 }
 
 func (r *tenantRepo) GetByID(ctx context.Context, tenantID uint64) (*entity.Tenant, error) {
+	tenant := r.getFromCache(ctx, tenantID)
+	if tenant != nil {
+		return tenant, nil
+	}
+
 	return r.get(ctx, []*Condition{
 		{
 			Field: "id",
@@ -109,6 +177,26 @@ func (r *tenantRepo) get(ctx context.Context, conditions []*Condition, filterDel
 	}
 
 	return ToTenant(tenant)
+}
+
+func (r *tenantRepo) getMany(ctx context.Context, conditions []*Condition, filterDelete bool) ([]*entity.Tenant, error) {
+	res, _, err := r.baseRepo.GetMany(ctx, new(Tenant), &Filter{
+		Conditions: append(r.getBaseConditions(), r.mayAddDeleteFilter(conditions, filterDelete)...),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	tenants := make([]*entity.Tenant, len(res))
+	for i, m := range res {
+		tenant, err := ToTenant(m.(*Tenant))
+		if err != nil {
+			return nil, err
+		}
+		tenants[i] = tenant
+	}
+
+	return tenants, nil
 }
 
 func (r *tenantRepo) mayAddDeleteFilter(conditions []*Condition, filterDelete bool) []*Condition {

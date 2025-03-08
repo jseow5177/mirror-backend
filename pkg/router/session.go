@@ -1,7 +1,6 @@
 package router
 
 import (
-	"cdp/config"
 	"cdp/entity"
 	"cdp/pkg/errutil"
 	"cdp/pkg/goutil"
@@ -9,23 +8,9 @@ import (
 	"cdp/repo"
 	"context"
 	"errors"
-	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog/log"
-	"math/rand"
 	"net/http"
-	"time"
 )
-
-type userTenantCache struct {
-	user   *entity.User
-	tenant *entity.Tenant
-}
-
-var c *cache.Cache
-
-func init() {
-	c = cache.New(30*time.Minute, 15*time.Minute)
-}
 
 type ContextInfo interface {
 	SetUser(user *entity.User)
@@ -40,22 +25,34 @@ const (
 )
 
 type sessionMiddleware struct {
-	userRepo    repo.UserRepo
-	tenantRepo  repo.TenantRepo
-	sessionRepo repo.SessionRepo
+	userRepo       repo.UserRepo
+	tenantRepo     repo.TenantRepo
+	sessionRepo    repo.SessionRepo
+	roleRepo       repo.RoleRepo
+	userRoleRepo   repo.UserRoleRepo
+	allowedActions []entity.ActionCode
 }
 
-func NewSessionMiddleware(userRepo repo.UserRepo, tenantRepo repo.TenantRepo, sessionRepo repo.SessionRepo) Middleware {
+func NewSessionMiddleware(userRepo repo.UserRepo, tenantRepo repo.TenantRepo,
+	sessionRepo repo.SessionRepo, roleRepo repo.RoleRepo, userRoleRepo repo.UserRoleRepo, allowedActions []entity.ActionCode) Middleware {
 	return &sessionMiddleware{
-		userRepo:    userRepo,
-		tenantRepo:  tenantRepo,
-		sessionRepo: sessionRepo,
+		userRepo:       userRepo,
+		tenantRepo:     tenantRepo,
+		sessionRepo:    sessionRepo,
+		roleRepo:       roleRepo,
+		userRoleRepo:   userRoleRepo,
+		allowedActions: allowedActions,
 	}
 }
 
 func (m *sessionMiddleware) Handle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+
+		var (
+			invalidSessionErr = errutil.UnauthorizedError(errors.New("invalid session"))
+			forbiddenErr      = errutil.ForbiddenError(errors.New("unauthorized"))
+		)
 
 		var token string
 		for _, cookie := range r.Cookies() {
@@ -66,69 +63,78 @@ func (m *sessionMiddleware) Handle(next http.Handler) http.Handler {
 		}
 		if token == "" {
 			log.Ctx(ctx).Error().Msg("token is empty")
-			m.returnErr(w)
+			httputil.ReturnServerResponse(w, nil, invalidSessionErr)
 			return
 		}
 
-		var utc *userTenantCache
-		if c != nil {
-			v, ok := c.Get(token)
-			if ok {
-				utc = v.(*userTenantCache)
+		decodedToken, err := goutil.Base64Decode(token)
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("decode token error, err: %v", err)
+			httputil.ReturnServerResponse(w, nil, invalidSessionErr)
+			return
+		}
+
+		session, err := m.sessionRepo.GetByTokenHash(ctx, goutil.Sha256(decodedToken))
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("get session error, err: %v", err)
+			httputil.ReturnServerResponse(w, nil, invalidSessionErr)
+			return
+		}
+
+		user, err := m.userRepo.GetByID(ctx, session.GetUserID())
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("get user error, err: %v, userID: %v", err, session.GetUserID())
+			httputil.ReturnServerResponse(w, nil, invalidSessionErr)
+			return
+		}
+
+		tenant, err := m.tenantRepo.GetByID(ctx, user.GetTenantID())
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("get tenant error, err: %v, tenantID: %v", err, user.GetTenantID())
+			httputil.ReturnServerResponse(w, nil, invalidSessionErr)
+			return
+		}
+
+		userRoleRepo, err := m.userRoleRepo.GetByUserID(ctx, user.GetTenantID(), user.GetID())
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("get user role error, err: %v, userID: %v", err, user.GetID())
+			httputil.ReturnServerResponse(w, nil, invalidSessionErr)
+			return
+		}
+
+		role, err := m.roleRepo.GetByID(ctx, user.GetTenantID(), userRoleRepo.GetRoleID())
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("get user role error, err: %v, userID: %v", err, user.GetID())
+			httputil.ReturnServerResponse(w, nil, invalidSessionErr)
+			return
+		}
+
+		allowed := len(m.allowedActions) == 0
+		if !allowed {
+			actionSet := make(map[entity.ActionCode]struct{})
+			for _, action := range m.allowedActions {
+				actionSet[action] = struct{}{}
+			}
+
+			for _, actionCode := range role.Actions {
+				if _, exists := actionSet[actionCode]; exists {
+					allowed = true
+					break
+				}
 			}
 		}
 
-		if utc == nil {
-			decodedToken, err := goutil.Base64Decode(token)
-			if err != nil {
-				log.Ctx(ctx).Error().Msgf("decode token error, err: %v", err)
-				m.returnErr(w)
-				return
-			}
-
-			session, err := m.sessionRepo.GetByTokenHash(ctx, goutil.Sha256(decodedToken))
-			if err != nil {
-				log.Ctx(ctx).Error().Msgf("get session error, err: %v", err)
-				m.returnErr(w)
-				return
-			}
-
-			user, err := m.userRepo.GetByID(ctx, session.GetUserID())
-			if err != nil {
-				log.Ctx(ctx).Error().Msgf("get user error, err: %v, userID: %v", err, session.GetUserID())
-				m.returnErr(w)
-				return
-			}
-
-			tenant, err := m.tenantRepo.GetByID(ctx, user.GetTenantID())
-			if err != nil {
-				log.Ctx(ctx).Error().Msgf("get tenant error, err: %v, tenantID: %v", err, user.GetTenantID())
-				m.returnErr(w)
-				return
-			}
-
-			utc = &userTenantCache{
-				user:   user,
-				tenant: tenant,
-			}
-
-			if r.URL.String() == getAppPath(config.PathLogOut) {
-				c.Delete(token)
-			} else {
-				exp := time.Duration(rand.Intn(10))*time.Minute + 30*time.Minute
-				c.Set(token, utc, exp)
-			}
+		if !allowed {
+			httputil.ReturnServerResponse(w, nil, forbiddenErr)
+			return
 		}
 
-		ctx = context.WithValue(ctx, userKey, utc.user)
-		ctx = context.WithValue(ctx, tenantKey, utc.tenant)
+		user.Role = role
+
+		ctx = context.WithValue(ctx, userKey, user)
+		ctx = context.WithValue(ctx, tenantKey, tenant)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-func (m *sessionMiddleware) returnErr(w http.ResponseWriter) {
-	// abstract all errors as invalid session
-	httputil.ReturnServerResponse(w, nil, errutil.UnauthorizedError(errors.New("invalid session")))
 }
 
 func GetUserFromContext(ctx context.Context) (*entity.User, bool) {

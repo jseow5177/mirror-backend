@@ -22,6 +22,7 @@ type UserHandler interface {
 	InitUser(ctx context.Context, req *InitUserRequest, res *InitUserResponse) error
 	LogIn(ctx context.Context, req *LogInRequest, res *LogInResponse) error
 	LogOut(ctx context.Context, req *LogOutRequest, _ *LogOutResponse) error
+	Me(ctx context.Context, req *GetUserRequest, res *GetUserResponse) error
 }
 
 type userHandler struct {
@@ -130,7 +131,7 @@ func (h *userHandler) LogIn(ctx context.Context, req *LogInRequest, res *LogInRe
 		return errutil.ValidationError(err)
 	}
 
-	stdErr := errutil.ValidationError(errors.New("incorrect tenant name or username or password"))
+	stdErr := errutil.ValidationError(errors.New("incorrect credentials"))
 
 	var (
 		err    error
@@ -515,6 +516,27 @@ func (h *userHandler) CreateUsers(ctx context.Context, req *CreateUsersRequest, 
 
 	res.Users = users
 
+	return nil
+}
+
+type GetUserRequest struct {
+	ContextInfo
+}
+
+type GetUserResponse struct {
+	User *entity.User `json:"user,omitempty"`
+}
+
+var GetUserValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator(false, false),
+})
+
+func (h *userHandler) Me(_ context.Context, req *GetUserRequest, res *GetUserResponse) error {
+	if err := GetUserValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	res.User = req.User
 	return nil
 }
 

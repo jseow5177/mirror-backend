@@ -3,6 +3,7 @@ package main
 import (
 	"cdp/config"
 	"cdp/dep"
+	"cdp/entity"
 	"cdp/handler"
 	"cdp/pkg/logutil"
 	"cdp/pkg/router"
@@ -26,8 +27,11 @@ type server struct {
 	opt *config.Option
 	cfg *config.Config
 
-	// repos
-	baseRepo        repo.BaseRepo
+	// base repos
+	baseRepo  repo.BaseRepo
+	baseCache repo.BaseCache
+
+	// service repos
 	tagRepo         repo.TagRepo
 	segmentRepo     repo.SegmentRepo
 	fileRepo        repo.FileRepo
@@ -104,6 +108,9 @@ func (s *server) Start() error {
 		}
 	}()
 
+	// base cache
+	s.baseCache = repo.NewBaseCache(s.ctx)
+
 	// query repo
 	s.queryRepo, err = repo.NewQueryRepo(s.ctx, s.cfg.QueryDB)
 	if err != nil {
@@ -147,16 +154,28 @@ func (s *server) Start() error {
 	s.campaignLogRepo = repo.NewCampaignLogRepo(s.ctx, s.baseRepo)
 
 	// tenant repo
-	s.tenantRepo = repo.NewTenantRepo(s.ctx, s.baseRepo)
+	s.tenantRepo, err = repo.NewTenantRepo(s.ctx, s.baseRepo, s.baseCache)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init tenant repo failed, err: %v", err)
+		return err
+	}
 
 	// user repo
-	s.userRepo = repo.NewUserRepo(s.ctx, s.baseRepo)
+	s.userRepo, err = repo.NewUserRepo(s.ctx, s.baseRepo, s.baseCache)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init user repo failed, err: %v", err)
+		return err
+	}
 
 	// activation repo
 	s.activationRepo = repo.NewActivationRepo(s.ctx, s.baseRepo)
 
 	// session repo
-	s.sessionRepo = repo.NewSessionRepo(s.ctx, s.baseRepo)
+	s.sessionRepo, err = repo.NewSessionRepo(s.ctx, s.baseRepo, s.baseCache)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init session repo failed, err: %v", err)
+		return err
+	}
 
 	// tag repo
 	s.tagRepo = repo.NewTagRepo(s.ctx, s.baseRepo)
@@ -165,10 +184,18 @@ func (s *server) Start() error {
 	s.taskRepo = repo.NewTaskRepo(s.ctx, s.baseRepo)
 
 	// role repo
-	s.roleRepo = repo.NewRoleRepo(s.ctx, s.baseRepo)
+	s.roleRepo, err = repo.NewRoleRepo(s.ctx, s.baseRepo, s.baseCache)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init role repo failed, err: %v", err)
+		return err
+	}
 
 	// user role repo
-	s.userRoleRepo = repo.NewUserRoleRepo(s.ctx, s.baseRepo)
+	s.userRoleRepo, err = repo.NewUserRoleRepo(s.ctx, s.baseRepo, s.baseCache)
+	if err != nil {
+		log.Ctx(s.ctx).Error().Msgf("init user role repo failed, err: %v", err)
+		return err
+	}
 
 	// ===== init deps ===== //
 
@@ -229,6 +256,13 @@ func (s *server) Start() error {
 }
 
 func (s *server) Stop() error {
+	if s.baseCache != nil {
+		if err := s.baseCache.Close(s.ctx); err != nil {
+			log.Ctx(s.ctx).Error().Msgf("close base cache failed, err: %v", err)
+			return err
+		}
+	}
+
 	if s.baseRepo != nil {
 		if err := s.baseRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close base repo failed, err: %v", err)
@@ -296,7 +330,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -312,7 +346,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -328,7 +362,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -344,7 +378,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -360,7 +394,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -376,7 +410,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -392,7 +426,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -408,7 +442,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -424,7 +458,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -440,7 +474,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -456,7 +490,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -472,7 +506,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -488,7 +522,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -504,7 +538,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -520,7 +554,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -536,7 +570,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -552,7 +586,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -568,7 +602,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -597,7 +631,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -613,7 +647,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -642,7 +676,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -684,7 +718,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -713,7 +747,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -729,7 +763,9 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, []entity.ActionCode{
+				entity.ActionEditRole,
+			}),
 		},
 	})
 
@@ -745,7 +781,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -761,11 +797,13 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, []entity.ActionCode{
+				entity.ActionEditRole,
+			}),
 		},
 	})
 
-	// create_users
+	// get_users
 	r.RegisterHttpRoute(&router.HttpRoute{
 		Path:   config.PathGetUsers,
 		Method: http.MethodPost,
@@ -777,7 +815,7 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 
@@ -793,7 +831,25 @@ func (s *server) registerRoutes() http.Handler {
 			},
 		},
 		Middlewares: []router.Middleware{
-			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, []entity.ActionCode{
+				entity.ActionEditUser,
+			}),
+		},
+	})
+
+	// me
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathMe,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetUserRequest),
+			Res: new(handler.GetUserResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.userHandler.Me(ctx, req.(*handler.GetUserRequest), res.(*handler.GetUserResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
 		},
 	})
 

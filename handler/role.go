@@ -7,6 +7,7 @@ import (
 	"cdp/pkg/validator"
 	"cdp/repo"
 	"context"
+	"errors"
 	"github.com/rs/zerolog/log"
 	"time"
 )
@@ -120,7 +121,7 @@ var UpdateRoleValidator = validator.MustForm(map[string]validator.Validator{
 	"name":        ResourceNameValidator(true),
 	"role_desc":   ResourceDescValidator(true),
 	"actions": &validator.Slice{
-		MinLen:    1,
+		Optional:  true,
 		Validator: new(actionsValidator),
 	},
 })
@@ -167,6 +168,10 @@ func (h *roleHandler) UpdateRoles(ctx context.Context, req *UpdateRolesRequest, 
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get roles failed: %v", err)
 		return err
+	}
+
+	if len(roleIDs) != len(roles) {
+		return errutil.ValidationError(errors.New("role ids not match"))
 	}
 
 	updatedRoles := make([]*entity.Role, 0)

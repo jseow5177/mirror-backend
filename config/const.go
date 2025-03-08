@@ -1,6 +1,8 @@
 package config
 
-import "time"
+import (
+	"time"
+)
 
 const (
 	PathHealthCheck          = "/"
@@ -37,6 +39,7 @@ const (
 	PathGetRoles             = "/get_roles"
 	PathCreateUsers          = "/create_users"
 	PathGetUsers             = "/get_users"
+	PathMe                   = "/me"
 )
 
 const (

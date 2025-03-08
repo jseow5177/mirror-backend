@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
+	"time"
 )
 
 var (
@@ -57,16 +59,71 @@ type UserRepo interface {
 }
 
 type userRepo struct {
-	baseRepo BaseRepo
+	cacheKeyPrefix string
+	baseRepo       BaseRepo
+	baseCache      BaseCache
 }
 
-func NewUserRepo(_ context.Context, baseRepo BaseRepo) UserRepo {
-	return &userRepo{baseRepo: baseRepo}
+func NewUserRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache) (UserRepo, error) {
+	r := &userRepo{
+		cacheKeyPrefix: "user",
+		baseRepo:       baseRepo,
+		baseCache:      baseCache,
+	}
+
+	if err := r.refreshCache(ctx); err != nil {
+		return nil, err
+	}
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := r.refreshCache(ctx); err != nil {
+					log.Ctx(ctx).Error().Msgf("failed to refresh user cache, err: %v", err)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return r, nil
+}
+
+func (r *userRepo) refreshCache(ctx context.Context) error {
+	allUsers, _, err := r.getMany(ctx, nil, nil, true, nil)
+	if err != nil {
+		return err
+	}
+
+	log.Ctx(ctx).Info().Msgf("refreshing user cache, %d user found", len(allUsers))
+	for _, user := range allUsers {
+		r.setCache(ctx, user)
+	}
+
+	return nil
+}
+
+func (r *userRepo) setCache(ctx context.Context, user *entity.User) {
+	r.baseCache.Set(ctx, r.cacheKeyPrefix, 0, user.GetID(), user)
+	r.baseCache.Set(ctx, r.cacheKeyPrefix, user.GetTenantID(), user.GetEmail(), user)
+	r.baseCache.Set(ctx, r.cacheKeyPrefix, user.GetTenantID(), user.GetUsername(), user)
+}
+
+func (r *userRepo) getFromCache(ctx context.Context, tenantID uint64, uniqKey interface{}) *entity.User {
+	if v, ok := r.baseCache.Get(ctx, r.cacheKeyPrefix, tenantID, uniqKey); ok {
+		return v.(*entity.User)
+	}
+	return nil
 }
 
 func (r *userRepo) GetManyByKeyword(ctx context.Context, tenantID uint64,
 	keyword string, status []entity.UserStatus, p *Pagination) ([]*entity.User, *Pagination, error) {
-	conds := []*Condition{
+	conditions := []*Condition{
 		{
 			OpenBracket:   true,
 			Field:         "LOWER(email)",
@@ -83,28 +140,55 @@ func (r *userRepo) GetManyByKeyword(ctx context.Context, tenantID uint64,
 		},
 	}
 	if len(status) > 0 {
-		conds = append(conds, &Condition{
+		conditions = append(conditions, &Condition{
 			Field: "status",
 			Value: status,
 			Op:    OpIn,
 		})
 	}
-	return r.getMany(ctx, tenantID, conds, true, p)
+	return r.getMany(ctx, goutil.Uint64(tenantID), conditions, true, p)
 }
 
 func (r *userRepo) GetManyByEmails(ctx context.Context, tenantID uint64, emails []string) ([]*entity.User, error) {
-	users, _, err := r.getMany(ctx, tenantID, []*Condition{
+	var (
+		cacheUsers    = make([]*entity.User, 0, len(emails))
+		missingEmails = make([]string, 0, len(emails))
+	)
+
+	for _, email := range emails {
+		user := r.getFromCache(ctx, tenantID, email)
+		if user == nil {
+			missingEmails = append(missingEmails, email)
+		} else {
+			cacheUsers = append(cacheUsers, user)
+		}
+	}
+
+	if len(missingEmails) == 0 {
+		return cacheUsers, nil
+	}
+
+	dbUsers, _, err := r.getMany(ctx, goutil.Uint64(tenantID), []*Condition{
 		{
 			Field: "email",
 			Value: emails,
 			Op:    OpIn,
 		},
 	}, true, nil)
-	return users, err
+	if err != nil {
+		return nil, err
+	}
+
+	return append(cacheUsers, dbUsers...), err
 }
 
 func (r *userRepo) GetByID(ctx context.Context, userID uint64) (*entity.User, error) {
-	return r.get(ctx, 0, []*Condition{
+	user := r.getFromCache(ctx, 0, userID)
+	if user != nil {
+		return user, nil
+	}
+
+	return r.get(ctx, nil, []*Condition{
 		{
 			Field: "id",
 			Value: userID,
@@ -114,7 +198,12 @@ func (r *userRepo) GetByID(ctx context.Context, userID uint64) (*entity.User, er
 }
 
 func (r *userRepo) GetByEmail(ctx context.Context, tenantID uint64, email string) (*entity.User, error) {
-	return r.get(ctx, tenantID, []*Condition{
+	user := r.getFromCache(ctx, tenantID, email)
+	if user != nil {
+		return user, nil
+	}
+
+	return r.get(ctx, goutil.Uint64(tenantID), []*Condition{
 		{
 			Field: "email",
 			Value: email,
@@ -124,7 +213,12 @@ func (r *userRepo) GetByEmail(ctx context.Context, tenantID uint64, email string
 }
 
 func (r *userRepo) GetByUsername(ctx context.Context, tenantID uint64, username string) (*entity.User, error) {
-	return r.get(ctx, tenantID, []*Condition{
+	user := r.getFromCache(ctx, tenantID, username)
+	if user != nil {
+		return user, nil
+	}
+
+	return r.get(ctx, goutil.Uint64(tenantID), []*Condition{
 		{
 			Field: "username",
 			Value: username,
@@ -133,7 +227,7 @@ func (r *userRepo) GetByUsername(ctx context.Context, tenantID uint64, username 
 	}, true)
 }
 
-func (r *userRepo) getMany(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool, p *Pagination) ([]*entity.User, *Pagination, error) {
+func (r *userRepo) getMany(ctx context.Context, tenantID *uint64, conditions []*Condition, filterDelete bool, p *Pagination) ([]*entity.User, *Pagination, error) {
 	res, pNew, err := r.baseRepo.GetMany(ctx, new(User), &Filter{
 		Conditions: append(r.getBaseConditions(tenantID), r.mayAddDeleteFilter(conditions, filterDelete)...),
 		Pagination: p,
@@ -150,16 +244,11 @@ func (r *userRepo) getMany(ctx context.Context, tenantID uint64, conditions []*C
 	return roles, pNew, nil
 }
 
-func (r *userRepo) get(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool) (*entity.User, error) {
+func (r *userRepo) get(ctx context.Context, tenantID *uint64, conditions []*Condition, filterDelete bool) (*entity.User, error) {
 	user := new(User)
 
-	baseConditions := make([]*Condition, 0)
-	if tenantID != 0 {
-		baseConditions = append(baseConditions, r.getBaseConditions(tenantID)...)
-	}
-
 	if err := r.baseRepo.Get(ctx, user, &Filter{
-		Conditions: append(baseConditions, r.mayAddDeleteFilter(conditions, filterDelete)...),
+		Conditions: append(r.getBaseConditions(tenantID), r.mayAddDeleteFilter(conditions, filterDelete)...),
 	}); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUserNotFound
@@ -181,15 +270,19 @@ func (r *userRepo) mayAddDeleteFilter(conditions []*Condition, filterDelete bool
 	return conditions
 }
 
-func (r *userRepo) getBaseConditions(tenantID uint64) []*Condition {
-	return []*Condition{
-		{
+func (r *userRepo) getBaseConditions(tenantID *uint64) []*Condition {
+	conditions := make([]*Condition, 0)
+
+	if tenantID != nil {
+		conditions = append(conditions, &Condition{
 			Field:         "tenant_id",
 			Value:         tenantID,
 			Op:            OpEq,
 			NextLogicalOp: LogicalOpAnd,
-		},
+		})
 	}
+
+	return conditions
 }
 
 func (r *userRepo) Create(ctx context.Context, user *entity.User) (uint64, error) {
@@ -206,6 +299,8 @@ func (r *userRepo) Update(ctx context.Context, user *entity.User) error {
 	if err := r.baseRepo.Update(ctx, ToUserModel(user)); err != nil {
 		return err
 	}
+
+	r.setCache(ctx, user)
 
 	return nil
 }
