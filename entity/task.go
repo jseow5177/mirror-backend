@@ -3,13 +3,8 @@ package entity
 import (
 	"cdp/pkg/goutil"
 	"encoding/json"
-	"errors"
 	"mime/multipart"
 	"time"
-)
-
-var (
-	ErrInvalidResourceType = errors.New("invalid resource type")
 )
 
 type FileMeta struct {
@@ -26,13 +21,6 @@ const (
 
 var ResourceTypes = map[ResourceType]string{
 	ResourceTypeTag: "tag",
-}
-
-func CheckResourceType(rt uint32) error {
-	if _, ok := ResourceTypes[ResourceType(rt)]; !ok {
-		return ErrInvalidResourceType
-	}
-	return nil
 }
 
 type TaskType uint32
@@ -155,23 +143,23 @@ func (e *Task) GetSize() uint64 {
 	return 0
 }
 
-func (e *Task) Update(t *Task) bool {
+func (e *Task) Update(newTask *Task) bool {
 	var hasChange bool
 
-	if t.Status != TaskStatusUnknown && e.Status != t.Status {
+	if newTask.Status != TaskStatusUnknown && e.Status != newTask.Status {
 		hasChange = true
-		e.Status = t.Status
+		e.Status = newTask.Status
 	}
 
-	if t.ExtInfo != nil {
+	if newTask.ExtInfo != nil {
 		oldExtInfo := e.ExtInfo
 		if oldExtInfo == nil {
 			oldExtInfo = new(TaskExtInfo)
 		}
 
-		if t.ExtInfo.Progress != nil && oldExtInfo.GetProgress() != t.ExtInfo.GetProgress() {
+		if newTask.ExtInfo.Progress != nil && oldExtInfo.GetProgress() != newTask.ExtInfo.GetProgress() {
 			hasChange = true
-			oldExtInfo.Progress = t.ExtInfo.Progress
+			oldExtInfo.Progress = newTask.ExtInfo.Progress
 		}
 	}
 

@@ -18,6 +18,7 @@ import (
 
 type UserHandler interface {
 	CreateUsers(ctx context.Context, req *CreateUsersRequest, res *CreateUsersResponse) error
+	GetUsers(ctx context.Context, req *GetUsersRequest, res *GetUsersResponse) error
 	InitUser(ctx context.Context, req *InitUserRequest, res *InitUserResponse) error
 	LogIn(ctx context.Context, req *LogInRequest, res *LogInResponse) error
 	LogOut(ctx context.Context, req *LogOutRequest, _ *LogOutResponse) error
@@ -31,10 +32,13 @@ type userHandler struct {
 	tenantRepo     repo.TenantRepo
 	activationRepo repo.ActivationRepo
 	sessionRepo    repo.SessionRepo
+	roleRepo       repo.RoleRepo
+	userRoleRepo   repo.UserRoleRepo
 }
 
 func NewUserHandler(cfg *config.Config, txService repo.TxService, emailService dep.EmailService,
-	userRepo repo.UserRepo, tenantRepo repo.TenantRepo, activationRepo repo.ActivationRepo, sessionRepo repo.SessionRepo) UserHandler {
+	userRepo repo.UserRepo, tenantRepo repo.TenantRepo, activationRepo repo.ActivationRepo, sessionRepo repo.SessionRepo,
+	roleRepo repo.RoleRepo, userRoleRepo repo.UserRoleRepo) UserHandler {
 	return &userHandler{
 		cfg:            cfg,
 		txService:      txService,
@@ -43,6 +47,8 @@ func NewUserHandler(cfg *config.Config, txService repo.TxService, emailService d
 		tenantRepo:     tenantRepo,
 		activationRepo: activationRepo,
 		sessionRepo:    sessionRepo,
+		roleRepo:       roleRepo,
+		userRoleRepo:   userRoleRepo,
 	}
 }
 
@@ -168,62 +174,6 @@ func (h *userHandler) LogIn(ctx context.Context, req *LogInRequest, res *LogInRe
 	return nil
 }
 
-type IsUserPendingInitRequest struct {
-	Token *string `json:"token,omitempty"`
-}
-
-func (r *IsUserPendingInitRequest) GetToken() string {
-	if r != nil && r.Token != nil {
-		return *r.Token
-	}
-	return ""
-}
-
-type IsUserPendingInitResponse struct {
-	IsPending *bool        `json:"is_pending,omitempty"`
-	User      *entity.User `json:"user,omitempty"`
-}
-
-func (r *IsUserPendingInitResponse) GetIsPending() bool {
-	if r != nil && r.IsPending != nil {
-		return *r.IsPending
-	}
-	return false
-}
-
-var IsUserPendingInitValidator = validator.MustForm(map[string]validator.Validator{
-	"token": &validator.String{},
-})
-
-func (h *userHandler) IsUserPendingInit(ctx context.Context, req *IsUserPendingInitRequest, res *IsUserPendingInitResponse) error {
-	if err := IsUserPendingInitValidator.Validate(req); err != nil {
-		return errutil.ValidationError(err)
-	}
-
-	token, err := goutil.Base64Decode(req.GetToken())
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("decode base64 token failed: %v", err)
-		return err
-	}
-
-	act, err := h.activationRepo.GetByTokenHash(ctx, goutil.Sha256(token), entity.TokenTypeUser)
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get activation token failed: %v", err)
-		return err
-	}
-
-	user, err := h.userRepo.GetByID(ctx, act.GetTargetID())
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get user failed: %v", err)
-		return err
-	}
-
-	res.IsPending = goutil.Bool(user.IsPending())
-	res.User = user
-
-	return nil
-}
-
 type InitUserRequest struct {
 	Token    *string `json:"token,omitempty"`
 	Password *string `json:"password,omitempty"`
@@ -258,17 +208,25 @@ func (h *userHandler) InitUser(ctx context.Context, req *InitUserRequest, res *I
 		return errutil.ValidationError(err)
 	}
 
-	isUserPendingInitRequest := &IsUserPendingInitRequest{
-		Token: req.Token,
-	}
-	isUserPendingInitResponse := new(IsUserPendingInitResponse)
-
-	if err := h.IsUserPendingInit(ctx, isUserPendingInitRequest, isUserPendingInitResponse); err != nil {
-		return errutil.ValidationError(errors.New("invalid token/user"))
+	token, err := goutil.Base64Decode(req.GetToken())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("decode base64 token failed: %v", err)
+		return err
 	}
 
-	user := isUserPendingInitResponse.User
-	if !isUserPendingInitResponse.GetIsPending() {
+	act, err := h.activationRepo.GetByTokenHash(ctx, goutil.Sha256(token), entity.TokenTypeUser)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get activation token failed: %v", err)
+		return err
+	}
+
+	user, err := h.userRepo.GetByID(ctx, act.GetTargetID())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get user failed: %v", err)
+		return err
+	}
+
+	if !user.IsPending() {
 		log.Ctx(ctx).Info().Msgf("user is not pending, token: %v", req.GetToken())
 		return errutil.ValidationError(errors.New("invalid token/user"))
 	}
@@ -317,13 +275,22 @@ type CreateUserRequest struct {
 	Email       *string `json:"email,omitempty"`
 	DisplayName *string `json:"display_name,omitempty"`
 	Password    *string `json:"password,omitempty"`
+	RoleID      *uint64 `json:"role_id,omitempty"`
 }
 
 var CreateUserValidator = validator.MustForm(map[string]validator.Validator{
 	"email":        EmailValidator(false),
 	"display_name": DisplayNameValidator(true),
 	"password":     PasswordValidator(true),
+	"role_id":      &validator.UInt64{},
 })
+
+func (r *CreateUserRequest) GetRoleID() uint64 {
+	if r != nil && r.RoleID != nil {
+		return *r.RoleID
+	}
+	return 0
+}
 
 func (r *CreateUserRequest) GetEmail() string {
 	if r != nil && r.Email != nil {
@@ -411,11 +378,31 @@ func (h *userHandler) CreateUsers(ctx context.Context, req *CreateUsersRequest, 
 		}
 	}
 
+	emails := make([]string, 0)
+	for _, u := range users {
+		emails = append(emails, u.GetEmail())
+	}
+	existUsers, err := h.userRepo.GetManyByEmails(ctx, req.GetTenantID(), emails)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get users error: %v", err)
+		return err
+	}
+
+	if len(existUsers) > 0 {
+		existEmails := make([]string, 0)
+		for _, u := range existUsers {
+			existEmails = append(existEmails, u.GetEmail())
+		}
+		return errutil.ValidationError(fmt.Errorf("emails already exist: %v", existEmails))
+	}
+
 	var (
-		acts         = make([]*entity.Activation, 0)
 		pendingUsers = make([]*entity.User, 0)
+		acts         = make([]*entity.Activation, 0)
+		userRoles    = make([]*entity.UserRole, 0)
 	)
 	if err := h.txService.RunTx(ctx, func(ctx context.Context) error {
+		// create users
 		userIDs, err := h.userRepo.CreateMany(ctx, users)
 		if err != nil {
 			log.Ctx(ctx).Error().Msgf("create users failed: %v", err)
@@ -423,6 +410,7 @@ func (h *userHandler) CreateUsers(ctx context.Context, req *CreateUsersRequest, 
 		}
 
 		for i, u := range users {
+			// create new activation tokens if user is pending
 			if u.IsPending() {
 				act, err := entity.NewActivation(userIDs[i], entity.TokenTypeUser)
 				if err != nil {
@@ -434,11 +422,43 @@ func (h *userHandler) CreateUsers(ctx context.Context, req *CreateUsersRequest, 
 			}
 
 			u.ID = goutil.Uint64(userIDs[i])
+
+			// create roles for each user
+			var (
+				roleID   = req.Users[i].GetRoleID()
+				roles    = make(map[uint64]*entity.Role) // cache for roles
+				userRole = &entity.UserRole{
+					TenantID:   u.TenantID,
+					UserID:     u.ID,
+					RoleID:     goutil.Uint64(roleID),
+					CreateTime: u.CreateTime,
+					UpdateTime: u.UpdateTime,
+				}
+			)
+
+			if _, ok := roles[roleID]; !ok {
+				role, err := h.roleRepo.GetByID(ctx, req.GetTenantID(), req.Users[i].GetRoleID())
+				if err != nil {
+					log.Ctx(ctx).Error().Msgf("get role failed: %v", err)
+					return err
+				}
+				roles[roleID] = role
+			}
+			userRoles = append(userRoles, userRole)
+
+			u.Role = roles[roleID]
+		}
+
+		if len(userRoles) != 0 {
+			_, err = h.userRoleRepo.CreateMany(ctx, userRoles)
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("create roles failed: %v", err)
+				return err
+			}
 		}
 
 		if len(acts) != 0 {
-			_, err = h.activationRepo.CreateMany(ctx, acts)
-			if err != nil {
+			if err = h.activationRepo.CreateMany(ctx, acts); err != nil {
 				log.Ctx(ctx).Error().Msgf("create activations failed: %v", err)
 				return err
 			}
@@ -464,6 +484,7 @@ func (h *userHandler) CreateUsers(ctx context.Context, req *CreateUsersRequest, 
 			emailVars := map[string]string{
 				"username":       user.GetUsername(),
 				"tenant_name":    req.GetTenantName(),
+				"role":           user.Role.GetName(),
 				"init_user_link": initUserLink,
 			}
 
@@ -493,6 +514,101 @@ func (h *userHandler) CreateUsers(ctx context.Context, req *CreateUsersRequest, 
 	}(context.WithoutCancel(ctx))
 
 	res.Users = users
+
+	return nil
+}
+
+type GetUsersRequest struct {
+	ContextInfo
+
+	Keyword    *string          `json:"keyword,omitempty"`
+	Status     []uint32         `json:"status,omitempty"`
+	Pagination *repo.Pagination `json:"pagination,omitempty"`
+}
+
+func (req *GetUsersRequest) GetKeyword() string {
+	if req != nil && req.Keyword != nil {
+		return *req.Keyword
+	}
+	return ""
+}
+
+type GetUsersResponse struct {
+	Users      []*entity.User   `json:"users"`
+	Pagination *repo.Pagination `json:"pagination,omitempty"`
+}
+
+var GetUsersValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator(false, false),
+	"keyword": &validator.String{
+		Optional: true,
+	},
+	"status": &validator.Slice{
+		Optional:  true,
+		Validator: new(userStatusValidator),
+	},
+	"pagination": PaginationValidator(),
+})
+
+func (h *userHandler) GetUsers(ctx context.Context, req *GetUsersRequest, res *GetUsersResponse) error {
+	if err := GetUsersValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	if req.Pagination == nil {
+		req.Pagination = new(repo.Pagination)
+	}
+
+	status := make([]entity.UserStatus, len(req.Status))
+	for i, s := range req.Status {
+		status[i] = entity.UserStatus(s)
+	}
+
+	users, pagination, err := h.userRepo.GetManyByKeyword(
+		ctx, req.GetTenantID(), req.GetKeyword(), status, req.Pagination)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get users failed: %v", err)
+		return err
+	}
+
+	roles, err := h.roleRepo.GetManyByTenantID(ctx, req.GetTenantID())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get roles failed: %v", err)
+		return err
+	}
+
+	rolesMap := make(map[uint64]*entity.Role)
+	for _, role := range roles {
+		rolesMap[role.GetID()] = role
+	}
+
+	userIDs := make([]uint64, 0, len(users))
+	for _, u := range users {
+		userIDs = append(userIDs, u.GetID())
+	}
+
+	userRoles, err := h.userRoleRepo.GetManyByUserIDs(ctx, req.GetTenantID(), userIDs)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get user roles failed: %v", err)
+		return err
+	}
+
+	if len(userIDs) != len(userRoles) {
+		log.Ctx(ctx).Error().Msgf("not enough user roles, userIDs: %v", userIDs)
+		return err
+	}
+
+	userIDsToRoles := make(map[uint64]*entity.Role)
+	for _, userRole := range userRoles {
+		userIDsToRoles[userRole.GetUserID()] = rolesMap[userRole.GetRoleID()]
+	}
+
+	for _, u := range users {
+		u.Role = userIDsToRoles[u.GetID()]
+	}
+
+	res.Users = users
+	res.Pagination = pagination
 
 	return nil
 }

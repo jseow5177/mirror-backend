@@ -19,12 +19,14 @@ type TenantHandler interface {
 }
 
 type tenantHandler struct {
-	cfg         *config.Config
-	txService   repo.TxService
-	tenantRepo  repo.TenantRepo
-	fileRepo    repo.FileRepo
-	queryRepo   repo.QueryRepo
-	userHandler UserHandler
+	cfg          *config.Config
+	txService    repo.TxService
+	tenantRepo   repo.TenantRepo
+	fileRepo     repo.FileRepo
+	queryRepo    repo.QueryRepo
+	roleRepo     repo.RoleRepo
+	userRoleRepo repo.UserRoleRepo
+	userHandler  UserHandler
 }
 
 func NewTenantHandler(
@@ -33,15 +35,19 @@ func NewTenantHandler(
 	tenantRepo repo.TenantRepo,
 	fileRepo repo.FileRepo,
 	queryRepo repo.QueryRepo,
+	roleRepo repo.RoleRepo,
+	userRoleRepo repo.UserRoleRepo,
 	userHandler UserHandler,
 ) TenantHandler {
 	return &tenantHandler{
-		cfg:         cfg,
-		txService:   txService,
-		tenantRepo:  tenantRepo,
-		fileRepo:    fileRepo,
-		queryRepo:   queryRepo,
-		userHandler: userHandler,
+		cfg:          cfg,
+		txService:    txService,
+		tenantRepo:   tenantRepo,
+		fileRepo:     fileRepo,
+		queryRepo:    queryRepo,
+		roleRepo:     roleRepo,
+		userRoleRepo: userRoleRepo,
+		userHandler:  userHandler,
 	}
 }
 
@@ -106,18 +112,56 @@ func (h *tenantHandler) CreateTenant(ctx context.Context, req *CreateTenantReque
 		tenant := req.ToTenant(folderID)
 
 		// create tenant
-		id, err := h.tenantRepo.Create(ctx, tenant)
+		tenantID, err := h.tenantRepo.Create(ctx, tenant)
 		if err != nil {
 			log.Ctx(ctx).Error().Msgf("create tenant failed: %v", err)
 			return err
 		}
 
-		tenant.ID = goutil.Uint64(id)
+		tenant.ID = goutil.Uint64(tenantID)
 
 		// create query store
 		if err := h.queryRepo.CreateStore(ctx, tenant.GetName()); err != nil {
 			log.Ctx(ctx).Error().Msgf("create query store failed: %v", err)
 			return err
+		}
+
+		// create roles
+		var defaultRoles = []*entity.Role{
+			{
+				ID:       nil,
+				Name:     goutil.String("Admin"),
+				RoleDesc: goutil.String("Admin role"),
+				Status:   entity.RoleStatusNormal,
+				Actions: []entity.ActionCode{
+					entity.ActionEditRole,
+					entity.ActionEditUser,
+				},
+				TenantID:   tenant.ID,
+				CreateTime: tenant.CreateTime,
+				UpdateTime: tenant.UpdateTime,
+			},
+			{
+				ID:         nil,
+				Name:       goutil.String("Member"),
+				RoleDesc:   goutil.String("Member role"),
+				Status:     entity.RoleStatusNormal,
+				Actions:    []entity.ActionCode{},
+				TenantID:   tenant.ID,
+				CreateTime: tenant.CreateTime,
+				UpdateTime: tenant.UpdateTime,
+			},
+		}
+
+		roleIDs, err := h.roleRepo.CreateMany(ctx, defaultRoles)
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("create roles failed: %v", err)
+			return err
+		}
+
+		// set role IDs
+		for _, user := range req.Users {
+			user.RoleID = goutil.Uint64(roleIDs[0]) // set to Admin
 		}
 
 		// create users
@@ -136,7 +180,7 @@ func (h *tenantHandler) CreateTenant(ctx context.Context, req *CreateTenantReque
 			return err
 		}
 
-		tenant.ID = goutil.Uint64(id)
+		tenant.ID = goutil.Uint64(tenantID)
 		res.Tenant = tenant
 
 		return nil

@@ -72,7 +72,7 @@ type TagRepo interface {
 	Create(ctx context.Context, tag *entity.Tag) (uint64, error)
 	GetByID(ctx context.Context, tenantID, tagID uint64) (*entity.Tag, error)
 	CountByTenantID(ctx context.Context, tenantID uint64) (uint64, error)
-	GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Tag, *Pagination, error)
+	GetManyByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Tag, *Pagination, error)
 	GetByName(ctx context.Context, tenantID uint64, name string) (*entity.Tag, error)
 }
 
@@ -114,7 +114,7 @@ func (r *tagRepo) GetByID(ctx context.Context, tenantID, tagID uint64) (*entity.
 	}, true)
 }
 
-func (r *tagRepo) GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Tag, *Pagination, error) {
+func (r *tagRepo) GetManyByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Tag, *Pagination, error) {
 	return r.getMany(ctx, tenantID, []*Condition{
 		{
 			Field:         "LOWER(name)",
@@ -141,13 +141,13 @@ func (r *tagRepo) getMany(ctx context.Context, tenantID uint64, conditions []*Co
 		return nil, nil, err
 	}
 
-	tags := make([]*entity.Tag, 0, len(res))
-	for _, m := range res {
+	tags := make([]*entity.Tag, len(res))
+	for i, m := range res {
 		tag, err := ToTag(m.(*Tag))
 		if err != nil {
 			return nil, nil, err
 		}
-		tags = append(tags, tag)
+		tags[i] = tag
 	}
 
 	return tags, pNew, nil

@@ -140,7 +140,7 @@ func (h *segmentHandler) GetSegments(ctx context.Context, req *GetSegmentsReques
 		req.Pagination = new(repo.Pagination)
 	}
 
-	segments, pagination, err := h.segmentRepo.GetByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
+	segments, pagination, err := h.segmentRepo.GetManyByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get segments failed: %v", err)
 		return err

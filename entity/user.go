@@ -16,6 +16,12 @@ const (
 	UserStatusDeleted
 )
 
+var UserStatuses = map[UserStatus]string{
+	UserStatusPending: "Pending",
+	UserStatusNormal:  "Normal",
+	UserStatusDeleted: "Deleted",
+}
+
 type User struct {
 	ID          *uint64    `json:"id,omitempty"`
 	TenantID    *uint64    `json:"tenant_id,omitempty"`
@@ -26,6 +32,8 @@ type User struct {
 	Status      UserStatus `json:"status,omitempty"`
 	CreateTime  *uint64    `json:"create_time,omitempty"`
 	UpdateTime  *uint64    `json:"update_time,omitempty"`
+
+	Role *Role `json:"role,omitempty"`
 }
 
 func NewUser(tenantID uint64, email string, password string, displayName string) (*User, error) {
@@ -60,17 +68,17 @@ func NewUser(tenantID uint64, email string, password string, displayName string)
 	}, nil
 }
 
-func (e *User) Update(t *User) bool {
+func (e *User) Update(newUser *User) bool {
 	var hasChange bool
 
-	if t.Status != UserStatusUnknown && e.Status != t.Status {
+	if newUser.Status != UserStatusUnknown && e.Status != newUser.Status {
 		hasChange = true
-		e.Status = t.Status
+		e.Status = newUser.Status
 	}
 
-	if t.Password != nil && e.GetPassword() != t.GetPassword() {
+	if newUser.Password != nil && e.GetPassword() != newUser.GetPassword() {
 		hasChange = true
-		e.Password = t.Password
+		e.Password = newUser.Password
 	}
 
 	if hasChange {

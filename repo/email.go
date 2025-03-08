@@ -48,7 +48,7 @@ func (m *Email) GetStatus() uint32 {
 type EmailRepo interface {
 	Create(ctx context.Context, email *entity.Email) (uint64, error)
 	GetByID(ctx context.Context, tenantID, emailID uint64) (*entity.Email, error)
-	GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Email, *Pagination, error)
+	GetManyByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Email, *Pagination, error)
 }
 
 type emailRepo struct {
@@ -79,7 +79,7 @@ func (r *emailRepo) GetByID(ctx context.Context, tenantID, emailID uint64) (*ent
 	}, true)
 }
 
-func (r *emailRepo) GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Email, *Pagination, error) {
+func (r *emailRepo) GetManyByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Email, *Pagination, error) {
 	return r.getMany(ctx, tenantID, []*Condition{
 		{
 			Field:         "LOWER(name)",

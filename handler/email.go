@@ -157,7 +157,7 @@ func (h *emailHandler) GetEmails(ctx context.Context, req *GetEmailsRequest, res
 		req.Pagination = new(repo.Pagination)
 	}
 
-	emails, pagination, err := h.emailRepo.GetByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
+	emails, pagination, err := h.emailRepo.GetManyByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get emails failed: %v", err)
 		return err

@@ -56,7 +56,7 @@ type SegmentRepo interface {
 	Create(ctx context.Context, segment *entity.Segment) (uint64, error)
 	GetByID(ctx context.Context, tenantID, segmentID uint64) (*entity.Segment, error)
 	GetByName(ctx context.Context, tenantID uint64, name string) (*entity.Segment, error)
-	GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Segment, *Pagination, error)
+	GetManyByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Segment, *Pagination, error)
 	CountByTenantID(ctx context.Context, tenantID uint64) (uint64, error)
 }
 
@@ -98,7 +98,7 @@ func (r *segmentRepo) GetByID(ctx context.Context, tenantID, segmentID uint64) (
 	}, true)
 }
 
-func (r *segmentRepo) GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Segment, *Pagination, error) {
+func (r *segmentRepo) GetManyByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Segment, *Pagination, error) {
 	return r.getMany(ctx, tenantID, []*Condition{
 		{
 			Field:         "LOWER(name)",

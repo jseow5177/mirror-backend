@@ -9,6 +9,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"math/rand"
 	"net/url"
+	"reflect"
+	"sort"
 )
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -111,4 +113,32 @@ func BuildURL(domain, path string, params map[string]string) (string, error) {
 	u.RawQuery = query.Encode()
 
 	return u.String(), nil
+}
+
+func RemoveStrDuplicates(elems []string) []string {
+	var (
+		m      = make(map[string]bool)
+		result = make([]string, 0)
+	)
+	for _, v := range elems {
+		if !m[v] {
+			m[v] = true
+			result = append(result, v)
+		}
+	}
+
+	return result
+}
+
+func IsStrArrEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	sortedA := append([]string{}, a...)
+	sortedB := append([]string{}, b...)
+	sort.Strings(sortedA)
+	sort.Strings(sortedB)
+
+	return reflect.DeepEqual(sortedA, sortedB)
 }

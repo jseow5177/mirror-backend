@@ -130,7 +130,7 @@ func (h *tagHandler) GetTags(ctx context.Context, req *GetTagsRequest, res *GetT
 		req.Pagination = new(repo.Pagination)
 	}
 
-	tags, pagination, err := h.tagRepo.GetByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
+	tags, pagination, err := h.tagRepo.GetManyByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get tags failed: %v", err)
 		return err

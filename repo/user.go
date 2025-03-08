@@ -6,6 +6,7 @@ import (
 	"cdp/pkg/goutil"
 	"context"
 	"errors"
+	"fmt"
 	"gorm.io/gorm"
 )
 
@@ -50,6 +51,9 @@ type UserRepo interface {
 	GetByID(ctx context.Context, userID uint64) (*entity.User, error)
 	GetByEmail(ctx context.Context, tenantID uint64, email string) (*entity.User, error)
 	GetByUsername(ctx context.Context, tenantID uint64, username string) (*entity.User, error)
+	GetManyByKeyword(ctx context.Context, tenantID uint64,
+		keyword string, status []entity.UserStatus, p *Pagination) ([]*entity.User, *Pagination, error)
+	GetManyByEmails(ctx context.Context, tenantID uint64, email []string) ([]*entity.User, error)
 }
 
 type userRepo struct {
@@ -58,6 +62,45 @@ type userRepo struct {
 
 func NewUserRepo(_ context.Context, baseRepo BaseRepo) UserRepo {
 	return &userRepo{baseRepo: baseRepo}
+}
+
+func (r *userRepo) GetManyByKeyword(ctx context.Context, tenantID uint64,
+	keyword string, status []entity.UserStatus, p *Pagination) ([]*entity.User, *Pagination, error) {
+	conds := []*Condition{
+		{
+			OpenBracket:   true,
+			Field:         "LOWER(email)",
+			Value:         fmt.Sprintf("%%%s%%", keyword),
+			Op:            OpLike,
+			NextLogicalOp: LogicalOpOr,
+		},
+		{
+			Field:         "LOWER(username)",
+			Value:         fmt.Sprintf("%%%s%%", keyword),
+			Op:            OpLike,
+			CloseBracket:  true,
+			NextLogicalOp: LogicalOpAnd,
+		},
+	}
+	if len(status) > 0 {
+		conds = append(conds, &Condition{
+			Field: "status",
+			Value: status,
+			Op:    OpIn,
+		})
+	}
+	return r.getMany(ctx, tenantID, conds, true, p)
+}
+
+func (r *userRepo) GetManyByEmails(ctx context.Context, tenantID uint64, emails []string) ([]*entity.User, error) {
+	users, _, err := r.getMany(ctx, tenantID, []*Condition{
+		{
+			Field: "email",
+			Value: emails,
+			Op:    OpIn,
+		},
+	}, true, nil)
+	return users, err
 }
 
 func (r *userRepo) GetByID(ctx context.Context, userID uint64) (*entity.User, error) {
@@ -88,6 +131,23 @@ func (r *userRepo) GetByUsername(ctx context.Context, tenantID uint64, username 
 			Op:    OpEq,
 		},
 	}, true)
+}
+
+func (r *userRepo) getMany(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool, p *Pagination) ([]*entity.User, *Pagination, error) {
+	res, pNew, err := r.baseRepo.GetMany(ctx, new(User), &Filter{
+		Conditions: append(r.getBaseConditions(tenantID), r.mayAddDeleteFilter(conditions, filterDelete)...),
+		Pagination: p,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	roles := make([]*entity.User, len(res))
+	for i, m := range res {
+		roles[i] = ToUser(m.(*User))
+	}
+
+	return roles, pNew, nil
 }
 
 func (r *userRepo) get(ctx context.Context, tenantID uint64, conditions []*Condition, filterDelete bool) (*entity.User, error) {

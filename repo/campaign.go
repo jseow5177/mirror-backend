@@ -61,7 +61,7 @@ func (m *Campaign) GetID() uint64 {
 
 type CampaignRepo interface {
 	Create(ctx context.Context, campaign *entity.Campaign) (uint64, error)
-	GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Campaign, *Pagination, error)
+	GetManyByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Campaign, *Pagination, error)
 	GetPendingCampaigns(ctx context.Context, schedule uint64) ([]*entity.Campaign, error)
 	GetByID(ctx context.Context, tenantID, campaignID uint64) (*entity.Campaign, error)
 	Update(ctx context.Context, tenant *entity.Campaign) error
@@ -141,7 +141,7 @@ func (r *campaignRepo) GetPendingCampaigns(ctx context.Context, schedule uint64)
 	return campaigns, nil
 }
 
-func (r *campaignRepo) GetByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Campaign, *Pagination, error) {
+func (r *campaignRepo) GetManyByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Campaign, *Pagination, error) {
 	return r.getMany(ctx, tenantID, []*Condition{
 		{
 			Field:         "LOWER(name)",

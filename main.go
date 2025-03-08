@@ -40,6 +40,8 @@ type server struct {
 	sessionRepo     repo.SessionRepo
 	taskRepo        repo.TaskRepo
 	queryRepo       repo.QueryRepo
+	roleRepo        repo.RoleRepo
+	userRoleRepo    repo.UserRoleRepo
 
 	// services
 	emailService dep.EmailService
@@ -53,10 +55,11 @@ type server struct {
 	userHandler     handler.UserHandler
 	taskHandler     handler.TaskHandler
 	accountHandler  handler.AccountHandler
+	roleHandler     handler.RoleHandler
 }
 
 func main() {
-	rand.Seed(time.Now().UTC().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	s := new(server)
 	if err := service.Run(s); err != nil {
@@ -161,6 +164,12 @@ func (s *server) Start() error {
 	// task repo
 	s.taskRepo = repo.NewTaskRepo(s.ctx, s.baseRepo)
 
+	// role repo
+	s.roleRepo = repo.NewRoleRepo(s.ctx, s.baseRepo)
+
+	// user role repo
+	s.userRoleRepo = repo.NewUserRoleRepo(s.ctx, s.baseRepo)
+
 	// ===== init deps ===== //
 
 	s.emailService, err = dep.NewEmailService(s.ctx, s.cfg.SMTP)
@@ -183,11 +192,13 @@ func (s *server) Start() error {
 	s.segmentHandler = handler.NewSegmentHandler(s.cfg, s.tagRepo, s.segmentRepo, s.queryRepo)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
 	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailService, s.segmentHandler, s.campaignLogRepo, s.emailHandler)
-	s.userHandler = handler.NewUserHandler(s.cfg, s.baseRepo, s.emailService, s.userRepo, s.tenantRepo, s.activationRepo, s.sessionRepo)
-	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.fileRepo, s.queryRepo, s.userHandler)
+	s.userHandler = handler.NewUserHandler(s.cfg, s.baseRepo, s.emailService, s.userRepo, s.tenantRepo,
+		s.activationRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo)
+	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.fileRepo, s.queryRepo, s.roleRepo, s.userRoleRepo, s.userHandler)
 	s.taskHandler = handler.NewTaskHandler(s.taskRepo, s.fileRepo, s.queryRepo, s.tenantRepo, s.tagRepo)
 	s.accountHandler = handler.NewAccountHandler(s.cfg, s.tenantHandler, s.userHandler, s.tagHandler, s.segmentHandler,
 		s.emailHandler, s.campaignRepo, s.queryRepo, s.taskRepo, s.campaignLogRepo)
+	s.roleHandler = handler.NewRoleHandler(s.userRepo, s.roleRepo)
 
 	// ===== start server ===== //
 
@@ -687,6 +698,102 @@ func (s *server) registerRoutes() http.Handler {
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.accountHandler.CreateTrialAccount(ctx, req.(*handler.CreateTrialAccountRequest), res.(*handler.CreateTrialAccountResponse))
 			},
+		},
+	})
+
+	// get_actions
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetActions,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetActionsRequest),
+			Res: new(handler.GetActionsResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.roleHandler.GetActions(ctx, req.(*handler.GetActionsRequest), res.(*handler.GetActionsResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
+	})
+
+	// create_role
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCreateRole,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CreateRoleRequest),
+			Res: new(handler.CreateRoleResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.roleHandler.CreateRole(ctx, req.(*handler.CreateRoleRequest), res.(*handler.CreateRoleResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
+	})
+
+	// get_roles
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetRoles,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetRolesRequest),
+			Res: new(handler.GetRolesResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.roleHandler.GetRoles(ctx, req.(*handler.GetRolesRequest), res.(*handler.GetRolesResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
+	})
+
+	// update_role
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathUpdateRoles,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.UpdateRolesRequest),
+			Res: new(handler.UpdateRolesResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.roleHandler.UpdateRoles(ctx, req.(*handler.UpdateRolesRequest), res.(*handler.UpdateRolesResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
+	})
+
+	// create_users
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetUsers,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetUsersRequest),
+			Res: new(handler.GetUsersResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.userHandler.GetUsers(ctx, req.(*handler.GetUsersRequest), res.(*handler.GetUsersResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
+		},
+	})
+
+	// create_users
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCreateUsers,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CreateUsersRequest),
+			Res: new(handler.CreateUsersResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.userHandler.CreateUsers(ctx, req.(*handler.CreateUsersRequest), res.(*handler.CreateUsersResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo),
 		},
 	})
 

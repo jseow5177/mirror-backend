@@ -36,6 +36,56 @@ func CheckIDType(idType uint32) error {
 	return errors.New("invalid id type")
 }
 
+func CheckUserStatus(status uint32) error {
+	if _, ok := entity.UserStatuses[entity.UserStatus(status)]; ok && status != uint32(entity.UserStatusUnknown) {
+		return nil
+	}
+	return errors.New("invalid user status")
+}
+
+type userStatusValidator struct {
+}
+
+func (v *userStatusValidator) Validate(value interface{}) error {
+	userStatus, ok := value.(uint32)
+	if !ok {
+		return errors.New("invalid user status")
+	}
+	return CheckUserStatus(userStatus)
+}
+
+func CheckActionCode(code string) error {
+	ac := entity.ActionCode(code)
+	if ac != entity.ActionUnknown {
+		for _, actions := range entity.Actions {
+			for _, action := range actions {
+				if action.Code == ac {
+					return nil
+				}
+			}
+		}
+	}
+	return errors.New("invalid action code")
+}
+
+type actionsValidator struct {
+}
+
+func (v *actionsValidator) Validate(value interface{}) error {
+	action, ok := value.(string)
+	if !ok {
+		return errors.New("invalid action")
+	}
+	return CheckActionCode(action)
+}
+
+func CheckResourceType(rt uint32) error {
+	if _, ok := entity.ResourceTypes[entity.ResourceType(rt)]; ok {
+		return nil
+	}
+	return errors.New("invalid resource type")
+}
+
 func UDValidator() validator.Validator {
 	return validator.MustForm(map[string]validator.Validator{
 		"id": &validator.String{},

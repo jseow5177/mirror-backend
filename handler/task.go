@@ -145,7 +145,7 @@ var CreateFileUploadTaskValidator = validator.MustForm(map[string]validator.Vali
 	},
 	"resource_type": &validator.UInt32{
 		Optional:   false,
-		Validators: []validator.UInt32Func{entity.CheckResourceType},
+		Validators: []validator.UInt32Func{CheckResourceType},
 	},
 })
 

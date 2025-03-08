@@ -73,22 +73,22 @@ func (e *Campaign) GetProgress() uint64 {
 	return 0
 }
 
-func (e *Campaign) Update(c *Campaign) bool {
+func (e *Campaign) Update(newCampaign *Campaign) bool {
 	var hasChange bool
 
-	if c.Progress != nil && e.GetProgress() != c.GetProgress() {
+	if newCampaign.Progress != nil && e.GetProgress() != newCampaign.GetProgress() {
 		hasChange = true
-		e.Progress = c.Progress
+		e.Progress = newCampaign.Progress
 	}
 
-	if c.SegmentSize != nil && e.GetSegmentSize() != c.GetSegmentSize() {
+	if newCampaign.SegmentSize != nil && e.GetSegmentSize() != newCampaign.GetSegmentSize() {
 		hasChange = true
-		e.SegmentSize = c.SegmentSize
+		e.SegmentSize = newCampaign.SegmentSize
 	}
 
-	if c.Status != CampaignStatusUnknown && e.Status != c.Status {
+	if newCampaign.Status != CampaignStatusUnknown && e.Status != newCampaign.Status {
 		hasChange = true
-		e.Status = c.Status
+		e.Status = newCampaign.Status
 	}
 
 	if hasChange {

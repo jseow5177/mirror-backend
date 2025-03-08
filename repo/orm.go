@@ -131,7 +131,7 @@ func (r *baseRepo) GroupBy(ctx context.Context, model, dest interface{}, groupBy
 	return res, nil
 }
 
-func (r *baseRepo) CreateMany(ctx context.Context, model interface{}, data interface{}) error {
+func (r *baseRepo) CreateMany(ctx context.Context, model, data interface{}) error {
 	return r.getDb(ctx).Model(model).Create(data).Error
 }
 

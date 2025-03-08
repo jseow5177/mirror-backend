@@ -53,8 +53,8 @@ CREATE TABLE IF NOT EXISTS email_tab (
 
 CREATE TABLE IF NOT EXISTS campaign_tab (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `name` VARCHAR(64) NOT NULL,
     `tenant_id` BIGINT UNSIGNED NOT NULL,
+    `name` VARCHAR(64) NOT NULL,
     `campaign_desc` VARCHAR(256) NOT NULL,
     `segment_id` BIGINT UNSIGNED NOT NULL,
     `segment_size` BIGINT UNSIGNED NOT NULL,
@@ -152,4 +152,28 @@ CREATE TABLE IF NOT EXISTS task_tab (
     PRIMARY KEY (`id`),
     KEY `idx_resource_id` (`resource_id`),
     KEY `idx_resource_type_task_type_status` (`resource_type`, `task_type`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS role_tab (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tenant_id` BIGINT UNSIGNED NOT NULL,
+    `name` VARCHAR(64) NOT NULL,
+    `role_desc` VARCHAR(256) NOT NULL,
+    `actions` TEXT NOT NULL,
+    `status` TINYINT UNSIGNED NOT NULL,
+    `create_time` BIGINT UNSIGNED NOT NULL,
+    `update_time` BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_tenant_id` (`tenant_id`, `name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS user_role_tab (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tenant_id` BIGINT UNSIGNED NOT NULL,
+    `user_id` BIGINT UNSIGNED NOT NULL,
+    `role_id` BIGINT UNSIGNED NOT NULL,
+    `create_time` BIGINT UNSIGNED NOT NULL,
+    `update_time` BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_tenant_id_user_id_role_id` (`tenant_id`, `user_id`, `role_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

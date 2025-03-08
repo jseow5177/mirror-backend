@@ -31,6 +31,12 @@ const (
 	PathCreateFileUploadTask = "/create_file_upload_task"
 	PathGetFileUploadTasks   = "/get_file_upload_tasks"
 	PathCreateTrialAccount   = "/create_trial_account"
+	PathGetActions           = "/get_actions"
+	PathCreateRole           = "/create_role"
+	PathUpdateRoles          = "/update_roles"
+	PathGetRoles             = "/get_roles"
+	PathCreateUsers          = "/create_users"
+	PathGetUsers             = "/get_users"
 )
 
 const (

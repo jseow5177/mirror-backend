@@ -55,9 +55,9 @@ type GetCampaignsRequest struct {
 	Pagination *repo.Pagination `json:"pagination,omitempty"`
 }
 
-func (r *GetCampaignsRequest) GetKeyword() string {
-	if r != nil && r.Keyword != nil {
-		return *r.Keyword
+func (req *GetCampaignsRequest) GetKeyword() string {
+	if req != nil && req.Keyword != nil {
+		return *req.Keyword
 	}
 	return ""
 }
@@ -84,7 +84,7 @@ func (h *campaignHandler) GetCampaigns(ctx context.Context, req *GetCampaignsReq
 		req.Pagination = new(repo.Pagination)
 	}
 
-	campaigns, pagination, err := h.campaignRepo.GetByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
+	campaigns, pagination, err := h.campaignRepo.GetManyByKeyword(ctx, req.GetTenantID(), req.GetKeyword(), req.Pagination)
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get campaigns failed: %v", err)
 		return err
@@ -118,18 +118,18 @@ type CreateCampaignRequest struct {
 	Schedule     *uint64          `json:"schedule,omitempty"`
 }
 
-func (r *CreateCampaignRequest) GetSchedule() uint64 {
-	if r != nil && r.Schedule != nil {
-		return *r.Schedule
+func (req *CreateCampaignRequest) GetSchedule() uint64 {
+	if req != nil && req.Schedule != nil {
+		return *req.Schedule
 	}
 	return 0
 }
 
-func (r *CreateCampaignRequest) ToCampaign() *entity.Campaign {
+func (req *CreateCampaignRequest) ToCampaign() *entity.Campaign {
 	now := time.Now()
 
-	campaignEmails := make([]*entity.CampaignEmail, 0, len(r.Emails))
-	for _, campaignEmail := range r.Emails {
+	campaignEmails := make([]*entity.CampaignEmail, 0, len(req.Emails))
+	for _, campaignEmail := range req.Emails {
 		campaignEmails = append(campaignEmails, &entity.CampaignEmail{
 			EmailID: campaignEmail.EmailID,
 			Subject: campaignEmail.Subject,
@@ -138,16 +138,16 @@ func (r *CreateCampaignRequest) ToCampaign() *entity.Campaign {
 	}
 
 	return &entity.Campaign{
-		Name:           r.Name,
-		CampaignDesc:   r.CampaignDesc,
-		SegmentID:      r.SegmentID,
+		Name:           req.Name,
+		CampaignDesc:   req.CampaignDesc,
+		SegmentID:      req.SegmentID,
 		SegmentSize:    goutil.Uint64(0),
 		Progress:       goutil.Uint64(0),
 		CampaignEmails: campaignEmails,
 		Status:         entity.CampaignStatusPending,
-		CreatorID:      goutil.Uint64(r.GetUserID()),
-		TenantID:       goutil.Uint64(r.GetTenantID()),
-		Schedule:       goutil.Uint64(r.GetSchedule()),
+		CreatorID:      goutil.Uint64(req.GetUserID()),
+		TenantID:       goutil.Uint64(req.GetTenantID()),
+		Schedule:       goutil.Uint64(req.GetSchedule()),
 		CreateTime:     goutil.Uint64(uint64(now.Unix())),
 		UpdateTime:     goutil.Uint64(uint64(now.Unix())),
 	}
