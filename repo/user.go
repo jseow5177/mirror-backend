@@ -171,7 +171,7 @@ func (r *userRepo) GetManyByEmails(ctx context.Context, tenantID uint64, emails 
 	dbUsers, _, err := r.getMany(ctx, goutil.Uint64(tenantID), []*Condition{
 		{
 			Field: "email",
-			Value: emails,
+			Value: missingEmails,
 			Op:    OpIn,
 		},
 	}, true, nil)

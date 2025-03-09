@@ -164,7 +164,7 @@ func (r *userRoleRepo) GetManyByUserIDs(ctx context.Context, tenantID uint64, us
 	dbRole, err := r.getMany(ctx, goutil.Uint64(tenantID), []*Condition{
 		{
 			Field: "user_id",
-			Value: userIDs,
+			Value: missingUserIDs,
 			Op:    OpIn,
 		},
 	})

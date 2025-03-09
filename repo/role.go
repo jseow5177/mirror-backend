@@ -160,7 +160,7 @@ func (r *roleRepo) GetManyByIDs(ctx context.Context, tenantID uint64, roleIDs []
 	dbRoles, err := r.getMany(ctx, goutil.Uint64(tenantID), []*Condition{
 		{
 			Field: "id",
-			Value: cacheRoles,
+			Value: missingRoleIDs,
 			Op:    OpIn,
 		},
 	}, true)
