@@ -182,6 +182,7 @@ func (h *tenantHandler) CreateTenant(ctx context.Context, req *CreateTenantReque
 
 		tenant.ID = goutil.Uint64(tenantID)
 		res.Tenant = tenant
+		res.Users = createUsersRes.Users
 
 		return nil
 	}); err != nil {
