@@ -68,11 +68,11 @@ type roleRepo struct {
 	baseCache      BaseCache
 }
 
-func NewRoleRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache) (RoleRepo, error) {
+func NewRoleRepo(ctx context.Context, baseRepo BaseRepo) (RoleRepo, error) {
 	r := &roleRepo{
 		cacheKeyPrefix: "role",
 		baseRepo:       baseRepo,
-		baseCache:      baseCache,
+		baseCache:      NewBaseCache(ctx),
 	}
 
 	if err := r.refreshCache(ctx); err != nil {
@@ -101,8 +101,11 @@ func NewRoleRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache) (R
 func (r *roleRepo) refreshCache(ctx context.Context) error {
 	allRoles, err := r.getMany(ctx, nil, nil, true)
 	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Msgf("failed to refresh role cache, err: %v", err)
 		return err
 	}
+
+	r.baseCache.Flush(ctx)
 
 	log.Ctx(ctx).Info().Msgf("refreshing role cache, %d roles found", len(allRoles))
 	for _, role := range allRoles {

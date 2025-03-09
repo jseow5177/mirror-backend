@@ -47,11 +47,11 @@ type sessionRepo struct {
 	baseCache      BaseCache
 }
 
-func NewSessionRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache) (SessionRepo, error) {
+func NewSessionRepo(ctx context.Context, baseRepo BaseRepo) (SessionRepo, error) {
 	r := &sessionRepo{
 		cacheKeyPrefix: "session",
 		baseRepo:       baseRepo,
-		baseCache:      baseCache,
+		baseCache:      NewBaseCache(ctx),
 	}
 
 	if err := r.refreshCache(ctx); err != nil {
@@ -80,8 +80,11 @@ func NewSessionRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache)
 func (r *sessionRepo) refreshCache(ctx context.Context) error {
 	allSessions, err := r.getMany(ctx, nil, true)
 	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Msgf("failed to refresh session cache, err: %v", err)
 		return err
 	}
+
+	r.baseCache.Flush(ctx)
 
 	log.Ctx(ctx).Info().Msgf("refreshing session cache, %d sessions found", len(allSessions))
 	for _, session := range allSessions {

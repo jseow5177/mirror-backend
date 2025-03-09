@@ -49,11 +49,11 @@ type userRoleRepo struct {
 	baseCache      BaseCache
 }
 
-func NewUserRoleRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache) (UserRoleRepo, error) {
+func NewUserRoleRepo(ctx context.Context, baseRepo BaseRepo) (UserRoleRepo, error) {
 	r := &userRoleRepo{
 		cacheKeyPrefix: "user_role",
 		baseRepo:       baseRepo,
-		baseCache:      baseCache,
+		baseCache:      NewBaseCache(ctx),
 	}
 
 	if err := r.refreshCache(ctx); err != nil {
@@ -82,8 +82,11 @@ func NewUserRoleRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache
 func (r *userRoleRepo) refreshCache(ctx context.Context) error {
 	allUserRoles, err := r.getMany(ctx, nil, nil)
 	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Msgf("failed to refresh user role cache, err: %v", err)
 		return err
 	}
+
+	r.baseCache.Flush(ctx)
 
 	log.Ctx(ctx).Info().Msgf("refreshing user roles cache, %d user roles found", len(allUserRoles))
 	for _, userRole := range allUserRoles {

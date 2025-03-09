@@ -12,6 +12,7 @@ type BaseCache interface {
 	Get(ctx context.Context, prefix string, tenantID uint64, uniqKey interface{}) (interface{}, bool)
 	Set(ctx context.Context, prefix string, tenantID uint64, uniqKey, value interface{})
 	Del(ctx context.Context, prefix string, tenantID uint64, uniqKey interface{})
+	Flush(ctx context.Context)
 	Close(ctx context.Context) error
 }
 
@@ -43,7 +44,11 @@ func (bc *baseCache) getKey(prefix string, tenantID uint64, uniqKey interface{})
 	return fmt.Sprintf("%s:%d:%v", prefix, tenantID, uniqKey)
 }
 
-func (bc *baseCache) Close(_ context.Context) error {
+func (bc *baseCache) Flush(_ context.Context) {
 	bc.cache.Flush()
+}
+
+func (bc *baseCache) Close(ctx context.Context) error {
+	bc.Flush(ctx)
 	return nil
 }

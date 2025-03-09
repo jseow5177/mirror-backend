@@ -64,11 +64,11 @@ type userRepo struct {
 	baseCache      BaseCache
 }
 
-func NewUserRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache) (UserRepo, error) {
+func NewUserRepo(ctx context.Context, baseRepo BaseRepo) (UserRepo, error) {
 	r := &userRepo{
 		cacheKeyPrefix: "user",
 		baseRepo:       baseRepo,
-		baseCache:      baseCache,
+		baseCache:      NewBaseCache(ctx),
 	}
 
 	if err := r.refreshCache(ctx); err != nil {
@@ -97,8 +97,11 @@ func NewUserRepo(ctx context.Context, baseRepo BaseRepo, baseCache BaseCache) (U
 func (r *userRepo) refreshCache(ctx context.Context) error {
 	allUsers, _, err := r.getMany(ctx, nil, nil, true, nil)
 	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Msgf("failed to refresh user cache, err: %v", err)
 		return err
 	}
+
+	r.baseCache.Flush(ctx)
 
 	log.Ctx(ctx).Info().Msgf("refreshing user cache, %d user found", len(allUsers))
 	for _, user := range allUsers {

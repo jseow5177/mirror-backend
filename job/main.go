@@ -86,8 +86,6 @@ func main() {
 		}
 	}()
 
-	baseCache := repo.NewBaseCache(ctx)
-
 	// tag repo
 	tagRepo := repo.NewTagRepo(ctx, baseRepo)
 
@@ -95,7 +93,7 @@ func main() {
 	taskRepo := repo.NewTaskRepo(ctx, baseRepo)
 
 	// tenant repo
-	tenantRepo, err := repo.NewTenantRepo(ctx, baseRepo, baseCache)
+	tenantRepo, err := repo.NewTenantRepo(ctx, baseRepo)
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("init tenant repo failed, err: %v", err)
 		os.Exit(1)

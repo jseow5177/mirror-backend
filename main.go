@@ -28,8 +28,7 @@ type server struct {
 	cfg *config.Config
 
 	// base repos
-	baseRepo  repo.BaseRepo
-	baseCache repo.BaseCache
+	baseRepo repo.BaseRepo
 
 	// service repos
 	tagRepo         repo.TagRepo
@@ -108,9 +107,6 @@ func (s *server) Start() error {
 		}
 	}()
 
-	// base cache
-	s.baseCache = repo.NewBaseCache(s.ctx)
-
 	// query repo
 	s.queryRepo, err = repo.NewQueryRepo(s.ctx, s.cfg.QueryDB)
 	if err != nil {
@@ -154,14 +150,14 @@ func (s *server) Start() error {
 	s.campaignLogRepo = repo.NewCampaignLogRepo(s.ctx, s.baseRepo)
 
 	// tenant repo
-	s.tenantRepo, err = repo.NewTenantRepo(s.ctx, s.baseRepo, s.baseCache)
+	s.tenantRepo, err = repo.NewTenantRepo(s.ctx, s.baseRepo)
 	if err != nil {
 		log.Ctx(s.ctx).Error().Msgf("init tenant repo failed, err: %v", err)
 		return err
 	}
 
 	// user repo
-	s.userRepo, err = repo.NewUserRepo(s.ctx, s.baseRepo, s.baseCache)
+	s.userRepo, err = repo.NewUserRepo(s.ctx, s.baseRepo)
 	if err != nil {
 		log.Ctx(s.ctx).Error().Msgf("init user repo failed, err: %v", err)
 		return err
@@ -171,7 +167,7 @@ func (s *server) Start() error {
 	s.activationRepo = repo.NewActivationRepo(s.ctx, s.baseRepo)
 
 	// session repo
-	s.sessionRepo, err = repo.NewSessionRepo(s.ctx, s.baseRepo, s.baseCache)
+	s.sessionRepo, err = repo.NewSessionRepo(s.ctx, s.baseRepo)
 	if err != nil {
 		log.Ctx(s.ctx).Error().Msgf("init session repo failed, err: %v", err)
 		return err
@@ -184,14 +180,14 @@ func (s *server) Start() error {
 	s.taskRepo = repo.NewTaskRepo(s.ctx, s.baseRepo)
 
 	// role repo
-	s.roleRepo, err = repo.NewRoleRepo(s.ctx, s.baseRepo, s.baseCache)
+	s.roleRepo, err = repo.NewRoleRepo(s.ctx, s.baseRepo)
 	if err != nil {
 		log.Ctx(s.ctx).Error().Msgf("init role repo failed, err: %v", err)
 		return err
 	}
 
 	// user role repo
-	s.userRoleRepo, err = repo.NewUserRoleRepo(s.ctx, s.baseRepo, s.baseCache)
+	s.userRoleRepo, err = repo.NewUserRoleRepo(s.ctx, s.baseRepo)
 	if err != nil {
 		log.Ctx(s.ctx).Error().Msgf("init user role repo failed, err: %v", err)
 		return err
@@ -256,13 +252,6 @@ func (s *server) Start() error {
 }
 
 func (s *server) Stop() error {
-	if s.baseCache != nil {
-		if err := s.baseCache.Close(s.ctx); err != nil {
-			log.Ctx(s.ctx).Error().Msgf("close base cache failed, err: %v", err)
-			return err
-		}
-	}
-
 	if s.baseRepo != nil {
 		if err := s.baseRepo.Close(s.ctx); err != nil {
 			log.Ctx(s.ctx).Error().Msgf("close base repo failed, err: %v", err)
