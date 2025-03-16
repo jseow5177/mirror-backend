@@ -18,6 +18,7 @@ const (
 	PathPreviewUd            = "/preview_ud"
 	PathCountSegments        = "/count_segments"
 	PathCreateEmail          = "/create_email"
+	PathUpdateEmail          = "/update_email"
 	PathGetEmails            = "/get_emails"
 	PathGetEmail             = "/get_email"
 	PathCreateCampaign       = "/create_campaign"

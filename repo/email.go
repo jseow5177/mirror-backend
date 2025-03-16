@@ -47,6 +47,7 @@ func (m *Email) GetStatus() uint32 {
 
 type EmailRepo interface {
 	Create(ctx context.Context, email *entity.Email) (uint64, error)
+	Update(ctx context.Context, email *entity.Email) error
 	GetByID(ctx context.Context, tenantID, emailID uint64) (*entity.Email, error)
 	GetManyByKeyword(ctx context.Context, tenantID uint64, keyword string, p *Pagination) ([]*entity.Email, *Pagination, error)
 }
@@ -67,6 +68,10 @@ func (r *emailRepo) Create(ctx context.Context, email *entity.Email) (uint64, er
 	}
 
 	return emailModel.GetID(), nil
+}
+
+func (r *emailRepo) Update(ctx context.Context, email *entity.Email) error {
+	return r.baseRepo.Update(ctx, ToEmailModel(email))
 }
 
 func (r *emailRepo) GetByID(ctx context.Context, tenantID, emailID uint64) (*entity.Email, error) {

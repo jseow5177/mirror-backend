@@ -86,11 +86,7 @@ func (r *campaignRepo) GetByID(ctx context.Context, tenantID, campaignID uint64)
 }
 
 func (r *campaignRepo) Update(ctx context.Context, campaign *entity.Campaign) error {
-	if err := r.baseRepo.Update(ctx, ToCampaignModel(campaign)); err != nil {
-		return err
-	}
-
-	return nil
+	return r.baseRepo.Update(ctx, ToCampaignModel(campaign))
 }
 
 func (r *campaignRepo) Create(ctx context.Context, campaign *entity.Campaign) (uint64, error) {

@@ -13,6 +13,7 @@ import (
 
 type EmailHandler interface {
 	CreateEmail(ctx context.Context, req *CreateEmailRequest, res *CreateEmailResponse) error
+	UpdateEmail(ctx context.Context, req *UpdateEmailRequest, res *UpdateEmailResponse) error
 	GetEmail(ctx context.Context, req *GetEmailRequest, res *GetEmailResponse) error
 	GetEmails(ctx context.Context, req *GetEmailsRequest, res *GetEmailsResponse) error
 }
@@ -25,6 +26,71 @@ func NewEmailHandler(emailRepo repo.EmailRepo) EmailHandler {
 	return &emailHandler{
 		emailRepo: emailRepo,
 	}
+}
+
+type UpdateEmailRequest struct {
+	ContextInfo
+
+	ID        *uint64 `json:"id,omitempty"`
+	Name      *string `json:"name,omitempty"`
+	EmailDesc *string `json:"email_desc,omitempty"`
+	Json      *string `json:"json,omitempty"`
+	Html      *string `json:"html,omitempty"`
+}
+
+func (req *UpdateEmailRequest) GetID() uint64 {
+	if req != nil && req.ID != nil {
+		return *req.ID
+	}
+	return 0
+}
+
+func (req *UpdateEmailRequest) ToEmail() *entity.Email {
+	return &entity.Email{
+		ID:        req.ID,
+		Name:      req.Name,
+		EmailDesc: req.EmailDesc,
+		Json:      req.Json,
+		Html:      req.Html,
+	}
+}
+
+type UpdateEmailResponse struct {
+	Email *entity.Email `json:"email,omitempty"`
+}
+
+var UpdateEmailValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator(false, false),
+	"id":          &validator.UInt64{},
+	"name":        ResourceNameValidator(false),
+	"email_desc":  ResourceDescValidator(false),
+	"json":        &validator.String{},
+	"html": &validator.String{
+		Validators: []validator.StringFunc{goutil.IsBase64EncodedHTML},
+	},
+})
+
+func (h *emailHandler) UpdateEmail(ctx context.Context, req *UpdateEmailRequest, res *UpdateEmailResponse) error {
+	if err := UpdateEmailValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	email, err := h.emailRepo.GetByID(ctx, req.GetTenantID(), req.GetID())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get email by id failed: %v", err)
+		return err
+	}
+
+	email.Update(req.ToEmail())
+
+	if err := h.emailRepo.Update(ctx, email); err != nil {
+		log.Ctx(ctx).Error().Msgf("update email failed: %v", err)
+		return err
+	}
+
+	res.Email = email
+
+	return nil
 }
 
 type CreateEmailRequest struct {

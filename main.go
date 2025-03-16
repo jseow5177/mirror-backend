@@ -515,6 +515,22 @@ func (s *server) registerRoutes() http.Handler {
 		},
 	})
 
+	// update_email
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathUpdateEmail,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.UpdateEmailRequest),
+			Res: new(handler.UpdateEmailResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.emailHandler.UpdateEmail(ctx, req.(*handler.UpdateEmailRequest), res.(*handler.UpdateEmailResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
+		},
+	})
+
 	// get_email
 	r.RegisterHttpRoute(&router.HttpRoute{
 		Path:   config.PathGetEmail,
