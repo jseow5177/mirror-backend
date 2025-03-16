@@ -211,7 +211,7 @@ func (s *server) Start() error {
 
 	// ===== init handlers ===== //
 
-	s.tagHandler = handler.NewTagHandler(s.tagRepo)
+	s.tagHandler = handler.NewTagHandler(s.tagRepo, s.queryRepo)
 	s.segmentHandler = handler.NewSegmentHandler(s.cfg, s.tagRepo, s.segmentRepo, s.queryRepo)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
 	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailService, s.segmentHandler, s.campaignLogRepo, s.emailHandler)
@@ -835,6 +835,22 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.GetUserResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.userHandler.Me(ctx, req.(*handler.GetUserRequest), res.(*handler.GetUserResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
+		},
+	})
+
+	// get_distinct_tag_values
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetDistinctTagValues,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetDistinctTagValuesRequest),
+			Res: new(handler.GetDistinctTagValuesResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tagHandler.GetDistinctTagValues(ctx, req.(*handler.GetDistinctTagValuesRequest), res.(*handler.GetDistinctTagValuesResponse))
 			},
 		},
 		Middlewares: []router.Middleware{

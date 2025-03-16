@@ -267,7 +267,7 @@ func (h *accountHandler) CreateTrialAccount(ctx context.Context, req *CreateTria
 		})
 	}
 
-	if err := h.queryRepo.BatchUpsert(ctx, tenantName, udTagVals); err != nil {
+	if err := h.queryRepo.BatchUpsert(ctx, tenantName, udTagVals, nil); err != nil {
 		log.Ctx(ctx).Error().Msgf("batch upsert error: %v", err)
 		return err
 	}

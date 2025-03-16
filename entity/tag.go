@@ -197,3 +197,7 @@ func (e *Tag) FormatTagValue(v string) (interface{}, error) {
 		return nil, errors.New("unsupported tag value type")
 	}
 }
+
+func (e *Tag) CanDistinctTagValues() bool {
+	return e.GetValueType() == TagValueTypeStr
+}

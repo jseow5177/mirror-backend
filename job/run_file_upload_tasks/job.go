@@ -174,28 +174,33 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 			var (
 				count    uint64
 				batchNum int
-			)
 
-			var (
-				progressTicker   = time.NewTicker(2 * time.Second)
-				completionTicker = time.NewTicker(5 * time.Second)
+				progressTicker = time.NewTicker(2 * time.Second)
+				upsertResChan  = make(chan repo.UpsertResult, 500_000)
 			)
 			defer func() {
 				progressTicker.Stop()
-				completionTicker.Stop()
+				//completionTicker.Stop()
 			}()
 
 			for {
 				select {
-				case <-h.queryRepo.OnInsertSuccess():
+				case upsertRes := <-upsertResChan:
 					count++
-				case insertErr := <-h.queryRepo.OnInsertFailure():
-					count++
-					if insertErr != nil {
-						updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("encounter batch insert err: %v", insertErr))
-						return insertErr
+					if upsertRes.Error != nil {
+						updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("encounter batch insert err: %v", upsertRes.Error))
+						return upsertRes.Error
 					}
+				//case <-h.queryRepo.OnInsertSuccess():
+				//	count++
+				//case insertErr := <-h.queryRepo.OnInsertFailure():
+				//	count++
+				//	if insertErr != nil {
+				//		updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("encounter batch insert err: %v", insertErr))
+				//		return insertErr
+				//	}
 				case <-progressTicker.C:
+					var isDone bool
 					if task.GetSize() > 0 {
 						progress := count * 100 / task.GetSize()
 						task.Update(&entity.Task{
@@ -203,14 +208,22 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 								Progress: goutil.Uint64(progress),
 							},
 						})
+
 						// no need return err, let the next update to correct the error
 						if err := h.taskRepo.Update(ctx, task); err != nil {
 							updateTaskStatus(entity.TaskStatusRunning, task, fmt.Errorf("set task progress err: %v", err))
+						} else {
+							log.Ctx(ctx).Info().Msgf("task_id: %v, count: %v, progress: %v", task.GetID(), count, progress)
 						}
+
+						if count == task.GetSize() {
+							isDone = true
+						}
+					} else {
+						isDone = true
 					}
-				case <-completionTicker.C:
-					// full completion
-					if count == task.GetSize() {
+
+					if isDone {
 						log.Ctx(ctx).Info().Msgf("task is success, task_id: %v", task.GetID())
 
 						task.Update(&entity.Task{
@@ -227,6 +240,25 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 						// done, exit go routine
 						return nil
 					}
+				//case <-completionTicker.C:
+				//	// full completion
+				//	if count == task.GetSize() {
+				//		log.Ctx(ctx).Info().Msgf("task is success, task_id: %v", task.GetID())
+				//
+				//		task.Update(&entity.Task{
+				//			Status: entity.TaskStatusSuccess,
+				//			ExtInfo: &entity.TaskExtInfo{
+				//				Progress: goutil.Uint64(100),
+				//			},
+				//		})
+				//		if err := h.taskRepo.Update(ctx, task); err != nil {
+				//			updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("set task to 100%% completion err: %v", err))
+				//			return err
+				//		}
+				//
+				//		// done, exit go routine
+				//		return nil
+				//	}
 				default:
 				}
 
@@ -234,7 +266,7 @@ func (h *RunFileUploadTask) Run(ctx context.Context) error {
 				if batchNum < len(batches) {
 					batch = batches[batchNum]
 
-					if err := h.queryRepo.BatchUpsert(ctx, tenant.GetName(), batch); err != nil {
+					if err := h.queryRepo.BatchUpsert(ctx, tenant.GetName(), batch, upsertResChan); err != nil {
 						updateTaskStatus(entity.TaskStatusFailed, task, fmt.Errorf("batch upsert err: %v", err))
 						return err
 					}

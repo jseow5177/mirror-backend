@@ -17,16 +17,68 @@ type TagHandler interface {
 	GetTags(ctx context.Context, req *GetTagsRequest, res *GetTagsResponse) error
 	GetTag(ctx context.Context, req *GetTagRequest, res *GetTagResponse) error
 	CountTags(ctx context.Context, req *CountTagsRequest, res *CountTagsResponse) error
+	GetDistinctTagValues(ctx context.Context, req *GetDistinctTagValuesRequest, res *GetDistinctTagValuesResponse) error
 }
 
 type tagHandler struct {
-	tagRepo repo.TagRepo
+	tagRepo   repo.TagRepo
+	queryRepo repo.QueryRepo
 }
 
-func NewTagHandler(tagRepo repo.TagRepo) TagHandler {
+func NewTagHandler(tagRepo repo.TagRepo, queryRepo repo.QueryRepo) TagHandler {
 	return &tagHandler{
-		tagRepo: tagRepo,
+		tagRepo:   tagRepo,
+		queryRepo: queryRepo,
 	}
+}
+
+type GetDistinctTagValuesRequest struct {
+	ContextInfo
+
+	TagID *uint64 `json:"tag_id,omitempty"`
+}
+
+func (r *GetDistinctTagValuesRequest) GetTagID() uint64 {
+	if r != nil && r.TagID != nil {
+		return *r.TagID
+	}
+	return 0
+}
+
+type GetDistinctTagValuesResponse struct {
+	TagValues []string `json:"tag_values"`
+}
+
+var GetDistinctTagValuesValidator = validator.MustForm(map[string]validator.Validator{
+	"ContextInfo": ContextInfoValidator(false, false),
+	"tag_id":      &validator.UInt64{},
+})
+
+func (h *tagHandler) GetDistinctTagValues(ctx context.Context, req *GetDistinctTagValuesRequest, res *GetDistinctTagValuesResponse) error {
+	if err := GetDistinctTagValuesValidator.Validate(req); err != nil {
+		return errutil.ValidationError(err)
+	}
+
+	tag, err := h.tagRepo.GetByID(ctx, req.GetTenantID(), req.GetTagID())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get tag failed: %v", err)
+		return err
+	}
+
+	if !tag.CanDistinctTagValues() {
+		res.TagValues = make([]string, 0)
+		return nil
+	}
+
+	values, err := h.queryRepo.GetDistinctTagValues(ctx, req.GetTenantName(), tag)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get tag values failed: %v", err)
+		return err
+	}
+
+	res.TagValues = values
+
+	return nil
 }
 
 type GetTagRequest struct {

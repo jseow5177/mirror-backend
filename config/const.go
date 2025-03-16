@@ -40,6 +40,7 @@ const (
 	PathCreateUsers          = "/create_users"
 	PathGetUsers             = "/get_users"
 	PathMe                   = "/me"
+	PathGetDistinctTagValues = "/get_distinct_tag_values"
 )
 
 const (

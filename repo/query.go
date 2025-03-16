@@ -25,11 +25,10 @@ var (
 
 type QueryRepo interface {
 	CreateStore(_ context.Context, tenantName string) error
-	BatchUpsert(ctx context.Context, tenantName string, udTagVals []*entity.UdTagVal) error
+	BatchUpsert(ctx context.Context, tenantName string, udTagVals []*entity.UdTagVal, onUpsert chan UpsertResult) error
 	Count(ctx context.Context, tenantName string, query *entity.Query) (uint64, error)
 	Download(ctx context.Context, tenantName string, query *entity.Query, page *Pagination) ([]*entity.Ud, *Pagination, error)
-	OnInsertSuccess() chan struct{}
-	OnInsertFailure() chan error
+	GetDistinctTagValues(ctx context.Context, tenantName string, tag *entity.Tag) ([]string, error)
 	Close(ctx context.Context) error
 }
 
@@ -37,6 +36,7 @@ type queryRepo struct {
 	client          *elasticsearch.Client
 	bulkIndexer     esutil.BulkIndexer
 	scrollTimeout   time.Duration
+	baseCache       BaseCache
 	onInsertSuccess chan struct{}
 	onInsertFailure chan error
 }
@@ -45,11 +45,9 @@ var (
 	defaultNumWorkers           = 10
 	defaultFlushBytes           = 1_000_000
 	defaultFlushIntervalSeconds = 5
-	successChanSize             = 500_000
-	failureChanSize             = 500_000
 )
 
-func NewQueryRepo(_ context.Context, cfg config.ElasticSearch) (QueryRepo, error) {
+func NewQueryRepo(ctx context.Context, cfg config.ElasticSearch) (QueryRepo, error) {
 	retryBackOff := backoff.NewExponentialBackOff()
 
 	c, err := elasticsearch.NewClient(elasticsearch.Config{
@@ -100,11 +98,10 @@ func NewQueryRepo(_ context.Context, cfg config.ElasticSearch) (QueryRepo, error
 	}
 
 	return &queryRepo{
-		client:          c,
-		bulkIndexer:     indexer,
-		onInsertSuccess: make(chan struct{}, successChanSize),
-		onInsertFailure: make(chan error, failureChanSize),
-		scrollTimeout:   time.Duration(cfg.ScrollTimeoutSeconds) * time.Second,
+		client:        c,
+		bulkIndexer:   indexer,
+		baseCache:     NewBaseCache(ctx),
+		scrollTimeout: time.Duration(cfg.ScrollTimeoutSeconds) * time.Second,
 	}, nil
 }
 
@@ -158,16 +155,12 @@ func (r *queryRepo) CreateStore(ctx context.Context, tenantName string) error {
 	return nil
 }
 
-func (r *queryRepo) OnInsertSuccess() chan struct{} {
-	return r.onInsertSuccess
-}
-
-func (r *queryRepo) OnInsertFailure() chan error {
-	return r.onInsertFailure
+type UpsertResult struct {
+	Error error
 }
 
 // BatchUpsert bulk indexer: https://github.com/elastic/go-elasticsearch/blob/main/_examples/bulk/indexer.go
-func (r *queryRepo) BatchUpsert(ctx context.Context, tenantName string, udTagVals []*entity.UdTagVal) error {
+func (r *queryRepo) BatchUpsert(ctx context.Context, tenantName string, udTagVals []*entity.UdTagVal, onUpsert chan UpsertResult) error {
 	if tenantName == "" {
 		return errEmptyTenantName
 	}
@@ -197,19 +190,27 @@ func (r *queryRepo) BatchUpsert(ctx context.Context, tenantName string, udTagVal
 			DocumentID: docID,
 			Body:       strings.NewReader(fmt.Sprintf(`{"doc":%s, "doc_as_upsert": true}`, data)),
 			OnSuccess: func(ctx context.Context, item esutil.BulkIndexerItem, res esutil.BulkIndexerResponseItem) {
-				select {
-				case r.onInsertSuccess <- struct{}{}:
-				default:
+				if onUpsert != nil {
+					select {
+					case onUpsert <- UpsertResult{
+						Error: nil,
+					}:
+					default:
+					}
 				}
 			},
 			OnFailure: func(ctx context.Context, item esutil.BulkIndexerItem, res esutil.BulkIndexerResponseItem, err error) {
-				if err == nil {
-					err = fmt.Errorf("type: %s, reason: %s", res.Error.Type, res.Error.Reason)
-				}
+				if onUpsert != nil {
+					if err == nil {
+						err = fmt.Errorf("type: %s, reason: %s", res.Error.Type, res.Error.Reason)
+					}
 
-				select {
-				case r.onInsertFailure <- err:
-				default:
+					select {
+					case onUpsert <- UpsertResult{
+						Error: err,
+					}:
+					default:
+					}
 				}
 			},
 		}); err != nil {
@@ -313,7 +314,80 @@ func (r *queryRepo) Download(ctx context.Context, tenantName string, query *enti
 	return uds, newPage, nil
 }
 
+func (r *queryRepo) GetDistinctTagValues(ctx context.Context, tenantName string, tag *entity.Tag) ([]string, error) {
+	if tenantName == "" {
+		return nil, errEmptyTenantName
+	}
+
+	const aggrName = "distinct_tag_values"
+
+	if cachedTagValues, ok := r.baseCache.Get(ctx, aggrName, 0, tag.GetID()); ok {
+		return cachedTagValues.([]string), nil
+	}
+
+	aggr := map[string]interface{}{
+		"size": 0,
+		"aggs": map[string]interface{}{
+			aggrName: map[string]interface{}{
+				"terms": map[string]interface{}{
+					"field": r.getTagField(tag.GetID()),
+				},
+			},
+		},
+	}
+
+	aggrBody, err := json.Marshal(aggr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal aggr: %w", err)
+	}
+
+	res, err := r.client.Search(
+		r.client.Search.WithContext(ctx),
+		r.client.Search.WithIndex(tenantName),
+		r.client.Search.WithBody(bytes.NewReader(aggrBody)),
+		r.client.Search.WithTrackTotalHits(false),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = res.Body.Close()
+	}()
+
+	var aggrResp map[string]interface{}
+	if err := json.NewDecoder(res.Body).Decode(&aggrResp); err != nil {
+		return nil, err
+	}
+
+	if err := r.extractElasticError(aggrResp); err != nil {
+		return nil, err
+	}
+
+	buckets, ok := aggrResp["aggregations"].(map[string]interface{})[aggrName].(map[string]interface{})["buckets"].([]interface{})
+	if !ok {
+		return nil, errors.New("no buckets found in response")
+	}
+
+	values := make([]string, 0)
+	for _, b := range buckets {
+		bucket, ok := b.(map[string]interface{})
+		if !ok {
+			return nil, errors.New("invalid bucket")
+		}
+		values = append(values, fmt.Sprint(bucket["key"]))
+	}
+
+	r.baseCache.Set(ctx, aggrName, 0, tag.GetID(), values)
+
+	return values, nil
+}
+
 func (r *queryRepo) Count(ctx context.Context, tenantName string, query *entity.Query) (uint64, error) {
+	if tenantName == "" {
+		return 0, errEmptyTenantName
+	}
+
 	queryBody := r.buildElasticQuery(query)
 	if queryBody == nil {
 		return 0, nil
@@ -375,11 +449,15 @@ func (r *queryRepo) extractElasticError(resp map[string]interface{}) error {
 	return nil
 }
 
+func (r *queryRepo) getTagField(tagID uint64) string {
+	return fmt.Sprintf("tag_%d", tagID)
+}
+
 func (r *queryRepo) buildElasticQuery(query *entity.Query) map[string]interface{} {
 	var queries []map[string]interface{}
 
 	for _, lookup := range query.Lookups {
-		field := fmt.Sprintf("tag_%d", lookup.GetTagID())
+		field := r.getTagField(lookup.GetTagID())
 		var clause map[string]interface{}
 
 		switch lookup.Op {
