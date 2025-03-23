@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"math"
+	"net/url"
 	"time"
 )
 
@@ -150,7 +151,7 @@ func (h *RunCampaigns) Run(ctx context.Context) error {
 				SegmentSize: goutil.Uint64(uint64(len(uds))),
 				Status:      entity.CampaignStatusRunning,
 			})
-			if err = h.campaignRepo.Update(ctx, campaign); err != nil {
+			if err := h.campaignRepo.Update(ctx, campaign); err != nil {
 				updateCampaignStatus(entity.CampaignStatusFailed, campaign, fmt.Errorf("set campaign to running failed: %v", err))
 				return err
 			}
@@ -192,14 +193,21 @@ func (h *RunCampaigns) Run(ctx context.Context) error {
 					return err
 				}
 
-				var decodedHtml string
-				decodedHtml, err = goutil.Base64Decode(getEmailRes.Email.GetHtml())
+				base64Decoded, err := goutil.Base64Decode(getEmailRes.Email.GetHtml())
 				if err != nil {
 					updateCampaignStatus(entity.CampaignStatusFailed, campaign,
 						fmt.Errorf("decode email failed: %v, campaign_email_id: %v", err, campaignEmail.GetID()))
 					return err
 				}
-				htmls = append(htmls, decodedHtml)
+
+				html, err := url.QueryUnescape(base64Decoded)
+				if err != nil {
+					updateCampaignStatus(entity.CampaignStatusFailed, campaign,
+						fmt.Errorf("query unescape email failed: %v, campaign_email_id: %v", err, campaignEmail.GetID()))
+					return err
+				}
+
+				htmls = append(htmls, html)
 			}
 
 			// send out emails by buckets
