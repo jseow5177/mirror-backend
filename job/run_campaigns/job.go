@@ -24,10 +24,11 @@ type RunCampaigns struct {
 	segmentHandler handler.SegmentHandler
 	emailHandler   handler.EmailHandler
 	tenantRepo     repo.TenantRepo
+	senderRepo     repo.SenderRepo
 }
 
 func New(cfg *config.Config, campaignRepo repo.CampaignRepo, emailService dep.EmailService,
-	segmentHandler handler.SegmentHandler, emailHandler handler.EmailHandler, tenantRepo repo.TenantRepo) service.Job {
+	segmentHandler handler.SegmentHandler, emailHandler handler.EmailHandler, tenantRepo repo.TenantRepo, senderRepo repo.SenderRepo) service.Job {
 	return &RunCampaigns{
 		cfg:            cfg,
 		campaignRepo:   campaignRepo,
@@ -35,6 +36,7 @@ func New(cfg *config.Config, campaignRepo repo.CampaignRepo, emailService dep.Em
 		segmentHandler: segmentHandler,
 		emailHandler:   emailHandler,
 		tenantRepo:     tenantRepo,
+		senderRepo:     senderRepo,
 	}
 }
 
@@ -109,6 +111,12 @@ func (h *RunCampaigns) Run(ctx context.Context) error {
 			tenant, err := h.tenantRepo.GetByID(ctx, campaign.GetTenantID())
 			if err != nil {
 				updateCampaignStatus(entity.CampaignStatusFailed, campaign, fmt.Errorf("get tenant failed: %v", err))
+				return err
+			}
+
+			sender, err := h.senderRepo.GetByID(ctx, tenant.GetID(), campaign.GetSenderID())
+			if err != nil {
+				updateCampaignStatus(entity.CampaignStatusFailed, campaign, fmt.Errorf("get sender failed: %v", err))
 				return err
 			}
 
@@ -236,7 +244,8 @@ func (h *RunCampaigns) Run(ctx context.Context) error {
 					sendSmtpEmail := &dep.SendSmtpEmail{
 						CampaignEmailID: campaignEmail.GetID(),
 						From: &dep.Sender{
-							Email: "mirrorcdp@gmail.com", // TODO: Set to tenant's email
+							Email: sender.GetEmail(tenant),
+							Name:  sender.GetName(),
 						},
 						To:          to,
 						Subject:     campaignEmail.GetSubject(),

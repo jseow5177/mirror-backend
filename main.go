@@ -45,6 +45,7 @@ type server struct {
 	queryRepo       repo.QueryRepo
 	roleRepo        repo.RoleRepo
 	userRoleRepo    repo.UserRoleRepo
+	senderRepo      repo.SenderRepo
 
 	// services
 	emailService dep.EmailService
@@ -179,6 +180,9 @@ func (s *server) Start() error {
 	// task repo
 	s.taskRepo = repo.NewTaskRepo(s.ctx, s.baseRepo)
 
+	// sender repo
+	s.senderRepo = repo.NewSenderRepo(s.ctx, s.baseRepo)
+
 	// role repo
 	s.roleRepo, err = repo.NewRoleRepo(s.ctx, s.baseRepo)
 	if err != nil {
@@ -214,10 +218,12 @@ func (s *server) Start() error {
 	s.tagHandler = handler.NewTagHandler(s.tagRepo, s.queryRepo)
 	s.segmentHandler = handler.NewSegmentHandler(s.cfg, s.tagRepo, s.segmentRepo, s.queryRepo)
 	s.emailHandler = handler.NewEmailHandler(s.emailRepo)
-	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailService, s.segmentHandler, s.campaignLogRepo, s.emailHandler)
+	s.campaignHandler = handler.NewCampaignHandler(s.cfg, s.campaignRepo, s.emailService, s.segmentHandler,
+		s.campaignLogRepo, s.emailHandler, s.senderRepo)
 	s.userHandler = handler.NewUserHandler(s.cfg, s.baseRepo, s.emailService, s.userRepo, s.tenantRepo,
 		s.activationRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo)
-	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.fileRepo, s.queryRepo, s.roleRepo, s.userRoleRepo, s.userHandler)
+	s.tenantHandler = handler.NewTenantHandler(s.cfg, s.baseRepo, s.tenantRepo, s.fileRepo, s.queryRepo,
+		s.roleRepo, s.userRoleRepo, s.userHandler, s.emailService, s.senderRepo)
 	s.taskHandler = handler.NewTaskHandler(s.taskRepo, s.fileRepo, s.queryRepo, s.tenantRepo, s.tagRepo)
 	s.accountHandler = handler.NewAccountHandler(s.cfg, s.tenantHandler, s.userHandler, s.tagHandler, s.segmentHandler,
 		s.emailHandler, s.campaignRepo, s.queryRepo, s.taskRepo, s.campaignLogRepo)
@@ -867,6 +873,70 @@ func (s *server) registerRoutes() http.Handler {
 			Res: new(handler.GetDistinctTagValuesResponse),
 			HandleFunc: func(ctx context.Context, req, res interface{}) error {
 				return s.tagHandler.GetDistinctTagValues(ctx, req.(*handler.GetDistinctTagValuesRequest), res.(*handler.GetDistinctTagValuesResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
+		},
+	})
+
+	// create_domain
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCreateDomain,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CreateDomainRequest),
+			Res: new(handler.CreateDomainResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tenantHandler.CreateDomain(ctx, req.(*handler.CreateDomainRequest), res.(*handler.CreateDomainResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
+		},
+	})
+
+	// update_dns_records
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathUpdateDnsRecords,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.UpdateDnsRecordsRequest),
+			Res: new(handler.UpdateDnsRecordsResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tenantHandler.UpdateDnsRecords(ctx, req.(*handler.UpdateDnsRecordsRequest), res.(*handler.UpdateDnsRecordsResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
+		},
+	})
+
+	// create_sender
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathCreateSender,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.CreateSenderRequest),
+			Res: new(handler.CreateSenderResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tenantHandler.CreateSender(ctx, req.(*handler.CreateSenderRequest), res.(*handler.CreateSenderResponse))
+			},
+		},
+		Middlewares: []router.Middleware{
+			router.NewSessionMiddleware(s.userRepo, s.tenantRepo, s.sessionRepo, s.roleRepo, s.userRoleRepo, nil),
+		},
+	})
+
+	// get_senders
+	r.RegisterHttpRoute(&router.HttpRoute{
+		Path:   config.PathGetSenders,
+		Method: http.MethodPost,
+		Handler: router.Handler{
+			Req: new(handler.GetSendersRequest),
+			Res: new(handler.GetSendersResponse),
+			HandleFunc: func(ctx context.Context, req, res interface{}) error {
+				return s.tenantHandler.GetSenders(ctx, req.(*handler.GetSendersRequest), res.(*handler.GetSendersResponse))
 			},
 		},
 		Middlewares: []router.Middleware{

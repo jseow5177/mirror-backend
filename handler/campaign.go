@@ -29,6 +29,7 @@ type campaignHandler struct {
 	segmentHandler  SegmentHandler
 	campaignLogRepo repo.CampaignLogRepo
 	emailHandler    EmailHandler
+	senderRepo      repo.SenderRepo
 }
 
 func NewCampaignHandler(
@@ -38,6 +39,7 @@ func NewCampaignHandler(
 	segmentHandler SegmentHandler,
 	campaignLogRepo repo.CampaignLogRepo,
 	emailHandler EmailHandler,
+	senderRepo repo.SenderRepo,
 ) CampaignHandler {
 	return &campaignHandler{
 		cfg,
@@ -46,6 +48,7 @@ func NewCampaignHandler(
 		segmentHandler,
 		campaignLogRepo,
 		emailHandler,
+		senderRepo,
 	}
 }
 
@@ -111,8 +114,10 @@ func (e *CampaignEmail) GetRatio() uint64 {
 
 type CreateCampaignRequest struct {
 	ContextInfo
+
 	Name         *string          `json:"name,omitempty"`
 	CampaignDesc *string          `json:"campaign_desc,omitempty"`
+	SenderID     *uint64          `json:"sender_id,omitempty"`
 	SegmentID    *uint64          `json:"segment_id,omitempty"`
 	Emails       []*CampaignEmail `json:"emails,omitempty"`
 	Schedule     *uint64          `json:"schedule,omitempty"`
@@ -121,6 +126,13 @@ type CreateCampaignRequest struct {
 func (req *CreateCampaignRequest) GetSchedule() uint64 {
 	if req != nil && req.Schedule != nil {
 		return *req.Schedule
+	}
+	return 0
+}
+
+func (req *CreateCampaignRequest) GetSenderID() uint64 {
+	if req != nil && req.SenderID != nil {
+		return *req.SenderID
 	}
 	return 0
 }
@@ -143,6 +155,7 @@ func (req *CreateCampaignRequest) ToCampaign() *entity.Campaign {
 		SegmentID:      req.SegmentID,
 		SegmentSize:    goutil.Uint64(0),
 		Progress:       goutil.Uint64(0),
+		SenderID:       req.SenderID,
 		CampaignEmails: campaignEmails,
 		Status:         entity.CampaignStatusPending,
 		CreatorID:      goutil.Uint64(req.GetUserID()),
@@ -161,6 +174,7 @@ var CreateCampaignValidator = validator.MustForm(map[string]validator.Validator{
 	"ContextInfo":   ContextInfoValidator(false, false),
 	"name":          ResourceNameValidator(false),
 	"campaign_desc": ResourceDescValidator(false),
+	"sender_id":     &validator.UInt64{},
 	"segment_id":    &validator.UInt64{},
 	"emails": &validator.Slice{
 		MinLen: 1,
@@ -193,6 +207,12 @@ func (h *campaignHandler) CreateCampaign(ctx context.Context, req *CreateCampaig
 	}
 	if ratio != 100 {
 		return errutil.ValidationError(errors.New("ratios must add up to 100"))
+	}
+
+	// validate sender
+	if _, err := h.senderRepo.GetByID(ctx, req.GetTenantID(), req.GetSenderID()); err != nil {
+		log.Ctx(ctx).Error().Msgf("get sender failed: %v", err)
+		return err
 	}
 
 	campaign := req.ToCampaign()
@@ -290,6 +310,7 @@ func (r *GetCampaignRequest) GetCampaignID() uint64 {
 type GetCampaignResponse struct {
 	Campaign *entity.Campaign `json:"campaign,omitempty"`
 	Segment  *entity.Segment  `json:"segment,omitempty"`
+	Sender   *entity.Sender   `json:"sender,omitempty"`
 }
 
 var GetCampaignValidator = validator.MustForm(map[string]validator.Validator{
@@ -301,12 +322,14 @@ func (h *campaignHandler) GetCampaign(ctx context.Context, req *GetCampaignReque
 		return errutil.ValidationError(err)
 	}
 
+	// get campaign
 	campaign, err := h.campaignRepo.GetByID(ctx, req.GetTenantID(), req.GetCampaignID())
 	if err != nil {
 		log.Ctx(ctx).Error().Msgf("get campaign err: %v", err)
 		return err
 	}
 
+	// get segment
 	var (
 		getSegmentReq = &GetSegmentRequest{
 			ContextInfo: req.ContextInfo,
@@ -318,6 +341,14 @@ func (h *campaignHandler) GetCampaign(ctx context.Context, req *GetCampaignReque
 		log.Ctx(ctx).Error().Msgf("get segment err: %v", err)
 		return err
 	}
+
+	// get sender
+	sender, err := h.senderRepo.GetByID(ctx, req.GetTenantID(), campaign.GetSenderID())
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("get sender err: %v", err)
+		return err
+	}
+	sender.SetEmail(req.Tenant)
 
 	for _, campaignEmail := range campaign.CampaignEmails {
 		campaignResult := new(entity.CampaignResult)
@@ -369,6 +400,7 @@ func (h *campaignHandler) GetCampaign(ctx context.Context, req *GetCampaignReque
 
 	res.Campaign = campaign
 	res.Segment = getSegmentRes.Segment
+	res.Sender = sender
 
 	return nil
 }

@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"bytes"
 	"cdp/pkg/goutil"
 	"encoding/json"
 	"time"
@@ -15,7 +16,16 @@ const (
 )
 
 type TenantExtInfo struct {
-	FolderID string `json:"folder_id,omitempty"`
+	FolderID      string                            `json:"folder_id,omitempty"`
+	Domain        string                            `json:"domain,omitempty"`
+	DnsRecords    map[string]map[string]interface{} `json:"dns_records,omitempty"`
+	IsDomainValid *bool                             `json:"is_domain_valid,omitempty"`
+}
+
+func (e *TenantExtInfo) IsDnsRecordsEqual(other *TenantExtInfo) bool {
+	aBytes, _ := json.Marshal(e.DnsRecords)
+	bBytes, _ := json.Marshal(other.DnsRecords)
+	return bytes.Equal(aBytes, bBytes)
 }
 
 func (e *TenantExtInfo) ToString() (string, error) {
@@ -35,6 +45,17 @@ func (e *TenantExtInfo) GetFolderID() string {
 	return e.FolderID
 }
 
+func (e *TenantExtInfo) GetDomain() string {
+	return e.Domain
+}
+
+func (e *TenantExtInfo) GetIsDomainValid() bool {
+	if e != nil && e.IsDomainValid != nil {
+		return *e.IsDomainValid
+	}
+	return false
+}
+
 type Tenant struct {
 	ID         *uint64        `json:"id,omitempty"`
 	Name       *string        `json:"name,omitempty"`
@@ -44,23 +65,39 @@ type Tenant struct {
 	UpdateTime *uint64        `json:"update_time,omitempty"`
 }
 
-func (e *Tenant) Update(t *Tenant) bool {
+func (e *Tenant) Update(newTenant *Tenant) bool {
 	var hasChange bool
 
-	if t.Status != TenantStatusUnknown && e.Status != t.Status {
+	if newTenant.Status != TenantStatusUnknown && e.Status != newTenant.Status {
 		hasChange = true
-		e.Status = t.Status
+		e.Status = newTenant.Status
 	}
 
-	if t.ExtInfo != nil {
-		oldExtInfo := e.ExtInfo
-		if oldExtInfo == nil {
-			oldExtInfo = new(TenantExtInfo)
+	if newTenant.ExtInfo != nil {
+		if e.ExtInfo == nil {
+			e.ExtInfo = new(TenantExtInfo)
 		}
 
-		if t.ExtInfo.FolderID != "" && oldExtInfo.FolderID != t.ExtInfo.FolderID {
+		if newTenant.ExtInfo.FolderID != "" && e.ExtInfo.FolderID != newTenant.ExtInfo.FolderID {
 			hasChange = true
-			oldExtInfo.FolderID = t.ExtInfo.FolderID
+			e.ExtInfo.FolderID = newTenant.ExtInfo.FolderID
+		}
+
+		if newTenant.ExtInfo.Domain != "" && e.ExtInfo.Domain != newTenant.ExtInfo.Domain {
+			hasChange = true
+			e.ExtInfo.Domain = newTenant.ExtInfo.Domain
+		}
+
+		if newTenant.ExtInfo.DnsRecords != nil {
+			if e.ExtInfo.DnsRecords == nil || !newTenant.ExtInfo.IsDnsRecordsEqual(e.ExtInfo) {
+				hasChange = true
+				e.ExtInfo.DnsRecords = newTenant.ExtInfo.DnsRecords
+			}
+		}
+
+		if newTenant.ExtInfo.IsDomainValid != nil && e.ExtInfo.GetIsDomainValid() != newTenant.ExtInfo.GetIsDomainValid() {
+			hasChange = true
+			e.ExtInfo.IsDomainValid = newTenant.ExtInfo.IsDomainValid
 		}
 	}
 

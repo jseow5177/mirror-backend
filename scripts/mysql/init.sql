@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS campaign_tab (
     `name` VARCHAR(64) NOT NULL,
     `campaign_desc` VARCHAR(256) NOT NULL,
     `segment_id` BIGINT UNSIGNED NOT NULL,
+    `sender_id` BIGINT UNSIGNED NOT NULL,
     `segment_size` BIGINT UNSIGNED NOT NULL,
     `progress` TINYINT UNSIGNED NOT NULL,
     `schedule` BIGINT UNSIGNED NOT NULL,
@@ -164,7 +165,7 @@ CREATE TABLE IF NOT EXISTS role_tab (
     `create_time` BIGINT UNSIGNED NOT NULL,
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_tenant_id` (`tenant_id`, `name`)
+    UNIQUE KEY `idx_tenant_id_name` (`tenant_id`, `name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS user_role_tab (
@@ -176,4 +177,15 @@ CREATE TABLE IF NOT EXISTS user_role_tab (
     `update_time` BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `idx_tenant_id_user_id_role_id` (`tenant_id`, `user_id`, `role_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sender_tab (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tenant_id` BIGINT UNSIGNED NOT NULL,
+    `name` VARCHAR(64) NOT NULL,
+    `local_part` VARCHAR(64) NOT NULL,
+    `create_time` BIGINT UNSIGNED NOT NULL,
+    `update_time` BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_tenant_id_name_local_part` (`tenant_id`, `name`, `local_part`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

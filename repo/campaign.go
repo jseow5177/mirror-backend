@@ -32,6 +32,7 @@ type Campaign struct {
 	CampaignDesc *string
 	SegmentID    *uint64
 	SegmentSize  *uint64
+	SenderID     *uint64
 	Schedule     *uint64
 	Progress     *uint64
 	Status       *uint32
@@ -272,6 +273,7 @@ func ToCampaign(campaign *Campaign) *entity.Campaign {
 		SegmentID:      campaign.SegmentID,
 		SegmentSize:    campaign.SegmentSize,
 		Schedule:       campaign.Schedule,
+		SenderID:       campaign.SenderID,
 		Progress:       campaign.Progress,
 		TenantID:       campaign.TenantID,
 		CreatorID:      campaign.CreatorID,
@@ -289,6 +291,7 @@ func ToCampaignModel(campaign *entity.Campaign) *Campaign {
 		CampaignDesc: campaign.CampaignDesc,
 		SegmentID:    campaign.SegmentID,
 		SegmentSize:  campaign.SegmentSize,
+		SenderID:     campaign.SenderID,
 		Schedule:     campaign.Schedule,
 		Progress:     campaign.Progress,
 		Status:       goutil.Uint32(uint32(campaign.Status)),

@@ -42,6 +42,10 @@ const (
 	PathGetUsers             = "/get_users"
 	PathMe                   = "/me"
 	PathGetDistinctTagValues = "/get_distinct_tag_values"
+	PathCreateDomain         = "/create_domain"
+	PathUpdateDnsRecords     = "/update_dns_records"
+	PathCreateSender         = "/create_sender"
+	PathGetSenders           = "/get_senders"
 )
 
 const (

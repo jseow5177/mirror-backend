@@ -22,6 +22,7 @@ type Campaign struct {
 	SegmentID      *uint64          `json:"segment_id,omitempty"`
 	SegmentSize    *uint64          `json:"segment_size,omitempty"`
 	Progress       *uint64          `json:"progress,omitempty"`
+	SenderID       *uint64          `json:"sender_id,omitempty"`
 	Status         CampaignStatus   `json:"status,omitempty"`
 	CampaignEmails []*CampaignEmail `json:"campaign_emails,omitempty"`
 	CreatorID      *uint64          `json:"creator_id,omitempty"`
@@ -41,6 +42,13 @@ func (e *Campaign) GetID() uint64 {
 func (e *Campaign) GetTenantID() uint64 {
 	if e != nil && e.TenantID != nil {
 		return *e.TenantID
+	}
+	return 0
+}
+
+func (e *Campaign) GetSenderID() uint64 {
+	if e != nil && e.SenderID != nil {
+		return *e.SenderID
 	}
 	return 0
 }

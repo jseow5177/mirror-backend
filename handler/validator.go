@@ -159,6 +159,19 @@ func ResourceDescValidator(optional bool) validator.Validator {
 	}
 }
 
+func DomainValidator(optional bool) validator.Validator {
+	return &validator.String{
+		Validators: []validator.StringFunc{func(s string) error {
+			re := regexp.MustCompile(`^([a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,}$`)
+			if !re.MatchString(s) {
+				return errors.New("invalid domain format")
+			}
+			return nil
+		}},
+		Optional: optional,
+	}
+}
+
 type QueryValidator interface {
 	Validate(ctx context.Context, query *entity.Query) error
 }
