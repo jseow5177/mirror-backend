@@ -342,13 +342,13 @@ func (h *campaignHandler) GetCampaign(ctx context.Context, req *GetCampaignReque
 		return err
 	}
 
-	// get sender
+	// get sender, will not exist in trial account
 	sender, err := h.senderRepo.GetByID(ctx, req.GetTenantID(), campaign.GetSenderID())
-	if err != nil {
-		log.Ctx(ctx).Error().Msgf("get sender err: %v", err)
-		return err
+	if err == nil {
+		sender.SetEmail(req.Tenant)
+	} else {
+		log.Ctx(ctx).Warn().Msgf("get sender err: %v", err)
 	}
-	sender.SetEmail(req.Tenant)
 
 	for _, campaignEmail := range campaign.CampaignEmails {
 		campaignResult := new(entity.CampaignResult)

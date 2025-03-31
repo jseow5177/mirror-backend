@@ -295,6 +295,7 @@ func (h *accountHandler) CreateTrialAccount(ctx context.Context, req *CreateTria
 		Name:         goutil.String("Sample Campaign"),
 		CampaignDesc: goutil.String("This is a sample campaign."),
 		SegmentID:    createSegmentRes.Segment.ID,
+		SenderID:     goutil.Uint64(1),
 		SegmentSize:  goutil.Uint64(userSize),
 		Progress:     goutil.Uint64(100),
 		Status:       entity.CampaignStatusRunning,
